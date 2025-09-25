@@ -8,6 +8,9 @@ import { logger } from '../utils/logger';
 import { AudioChunk, ChunkResult, WhisperResponse } from '../types';
 
 export class WhisperService {
+  private static readonly REPETITION_THRESHOLD = 3;
+  private static readonly MIN_REPETITION_LENGTH = 5;
+
   private readonly baseURL = 'https://api.openai.com/v1/audio/transcriptions';
   private readonly transcriptsDir: string;
 
@@ -117,38 +120,17 @@ export class WhisperService {
           try {
             const response = await this.callWhisperAPI(chunk.path);
 
+            this.validateWhisperResponse(response, chunk);
+
             fs.writeFileSync(cacheFile, JSON.stringify(response, null, 2));
 
-            // VALIDAÇÃO CRÍTICA: Detectar falhas silenciosas da API
-            const isEmptyResult = !response.segments || response.segments.length === 0;
-            const hasMinimalText = (response.text?.trim().length || 0) < 10;
-            const isSuspiciouslyShort = (response.duration || 0) < chunk.duration * 0.1;
-
-            if (isEmptyResult || (hasMinimalText && isSuspiciouslyShort)) {
-              const suspicionReason = isEmptyResult ? 'No segments returned' :
-                                    hasMinimalText ? `Minimal text (${response.text?.length || 0} chars)` :
-                                    'Suspiciously short duration';
-
-              logger.warn('🚨 WHISPER API FALHA SILENCIOSA DETECTADA', {
-                chunkIndex: chunk.index,
-                suspicion: suspicionReason,
-                segments: response.segments?.length || 0,
-                textLength: response.text?.length || 0,
-                responseDuration: response.duration?.toFixed(2) || 'N/A',
-                expectedMinDuration: (chunk.duration * 0.1).toFixed(2),
-                action: 'Marcando chunk como falha'
-              });
-
-              throw new Error(`Whisper API returned suspicious result: ${suspicionReason}`);
-            }
-
-            logger.info('✅ Transcrição bem-sucedida e validada', {
+            logger.info('? Transcrição bem-sucedida e validada', {
               chunkIndex: chunk.index,
               segments: response.segments?.length || 0,
               duration: `${response.duration?.toFixed(2)}s`,
               language: response.language || 'N/A',
               characters: response.text?.length || 0,
-              validation: '✅ PASSED',
+              validation: '? PASSED',
               cached: 'Salvando resultado em cache'
             });
 
@@ -237,6 +219,91 @@ export class WhisperService {
         retries: retryCount
       };
     }
+  }
+
+  private validateWhisperResponse(response: WhisperResponse, chunk: AudioChunk): void {
+    const segments = response.segments ?? [];
+    const trimmedTextLength = response.text?.trim().length ?? 0;
+    const rawDuration = response.duration;
+    const responseDuration = rawDuration ?? 0;
+    const isEmptyResult = segments.length === 0;
+    const hasMinimalText = trimmedTextLength < 10;
+    const isSuspiciouslyShort = responseDuration < chunk.duration * 0.1;
+
+    if (isEmptyResult || (hasMinimalText && isSuspiciouslyShort)) {
+      const suspicionReason = isEmptyResult
+        ? 'No segments returned'
+        : hasMinimalText
+          ? `Minimal text (${response.text?.length || 0} chars)`
+          : 'Suspiciously short duration';
+
+      logger.warn('?? WHISPER API FALHA SILENCIOSA DETECTADA', {
+        chunkIndex: chunk.index,
+        suspicion: suspicionReason,
+        segments: segments.length,
+        textLength: response.text?.length || 0,
+        responseDuration: rawDuration !== undefined ? rawDuration.toFixed(2) : 'N/A',
+        expectedMinDuration: (chunk.duration * 0.1).toFixed(2),
+        action: 'Marcando chunk como falha'
+      });
+
+      throw new Error(`Whisper API returned suspicious result: ${suspicionReason}`);
+    }
+
+    this.detectRepeatedSegments(response, chunk);
+  }
+
+  private detectRepeatedSegments(response: WhisperResponse, chunk: AudioChunk): void {
+    const segments = response.segments ?? [];
+    if (segments.length < WhisperService.REPETITION_THRESHOLD) {
+      return;
+    }
+
+    for (let i = 0; i <= segments.length - WhisperService.REPETITION_THRESHOLD; i++) {
+      const baseText = this.normalizeSegmentText(segments[i]?.text ?? '');
+      if (baseText.length < WhisperService.MIN_REPETITION_LENGTH) {
+        continue;
+      }
+
+      let isRepetitive = true;
+      for (let j = 1; j < WhisperService.REPETITION_THRESHOLD; j++) {
+        const compareText = this.normalizeSegmentText(segments[i + j]?.text ?? '');
+        if (compareText !== baseText) {
+          isRepetitive = false;
+          break;
+        }
+      }
+
+      if (isRepetitive) {
+        const firstSegment = segments[i];
+        const lastSegment = segments[i + WhisperService.REPETITION_THRESHOLD - 1];
+        if (!firstSegment || !lastSegment) {
+          continue;
+        }
+
+        const trimmedText = firstSegment.text.trim();
+
+        logger.warn('?? WHISPER API DETECTOU ALUCINAÇÃO (REPETIÇÃO)', {
+          chunkIndex: chunk.index,
+          repeatedText: trimmedText.slice(0, 120),
+          count: WhisperService.REPETITION_THRESHOLD,
+          startTime: firstSegment.start.toFixed(2),
+          endTime: lastSegment.end.toFixed(2),
+          action: 'Marcando chunk como falha'
+        });
+
+        throw new Error(`Whisper API hallucination detected: repeated text "${trimmedText}"`);
+      }
+    }
+  }
+
+  private normalizeSegmentText(text: string): string {
+    return text
+      .normalize('NFKD')
+      .replace(/[^\p{L}\p{N}\s]/gu, '')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .toLowerCase();
   }
 
   private async callWhisperAPI(audioPath: string): Promise<WhisperResponse> {
