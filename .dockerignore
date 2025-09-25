@@ -13,11 +13,9 @@ README.md
 temp
 output
 logs
-src
 *.md
-.eslintrc.json
-tsconfig.json
 jest.config.js
 .vscode
 .DS_Store
 Thumbs.db
+dist
