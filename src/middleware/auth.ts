@@ -17,12 +17,7 @@ export const authenticateToken = (
     : null;
 
   if (!token) {
-    logger.warn('Authentication failed: missing token', {
-      ip: req.ip,
-      userAgent: req.get('User-Agent'),
-      path: req.path
-    });
-
+    logger.warn(`🔐 Auth failed: Missing token - ${req.ip} ${req.path}`);
     res.status(401).json({
       error: 'Unauthorized',
       message: 'Bearer token required'
@@ -31,13 +26,7 @@ export const authenticateToken = (
   }
 
   if (token !== config.apiKey) {
-    logger.warn('Authentication failed: invalid token', {
-      ip: req.ip,
-      userAgent: req.get('User-Agent'),
-      path: req.path,
-      providedToken: token.substring(0, 8) + '...'
-    });
-
+    logger.warn(`🔐 Auth failed: Invalid token - ${req.ip} ${req.path}`);
     res.status(401).json({
       error: 'Unauthorized',
       message: 'Invalid API key'
@@ -45,11 +34,7 @@ export const authenticateToken = (
     return;
   }
 
-  logger.debug('Authentication successful', {
-    ip: req.ip,
-    userAgent: req.get('User-Agent'),
-    path: req.path
-  });
+  logger.debug(`🔐 Auth success - ${req.ip} ${req.path}`);
 
   req.authenticated = true;
   next();

@@ -4,22 +4,15 @@ import { logger } from './utils/logger';
 import fs from 'fs';
 
 const gracefulShutdown = (signal: string): void => {
-  logger.info(`📴 Recebido ${signal} - Iniciando shutdown gracioso`, {
-    signal,
-    timestamp: new Date().toISOString(),
-    uptime: `${process.uptime().toFixed(2)}s`
-  });
+  logger.info(`📴 Shutdown gracioso iniciado - Signal: ${signal} - Uptime: ${process.uptime().toFixed(2)}s`);
 
   server.close((err) => {
     if (err) {
-      logger.error('Error during server close', { error: err.message });
+      logger.error(`❌ Erro ao fechar servidor: ${err.message}`);
       process.exit(1);
     }
 
-    logger.info('✅ Servidor fechado com sucesso', {
-      uptime: `${process.uptime().toFixed(2)}s`,
-      timestamp: new Date().toISOString()
-    });
+    logger.info(`✅ Servidor fechado com sucesso - Uptime: ${process.uptime().toFixed(2)}s`);
 
     setTimeout(() => {
       logger.warn('⚠️ Forçando shutdown por timeout (30s)');
@@ -31,72 +24,32 @@ const gracefulShutdown = (signal: string): void => {
 };
 
 const server = app.listen(config.port, () => {
-  logger.info('🚀 SERVIDOR INICIADO COM SUCESSO! 🚀', {
-    service: 'API Transcrição',
-    port: config.port,
-    environment: config.nodeEnv,
-    processId: process.pid,
-    nodeVersion: process.version,
-    timestamp: new Date().toISOString(),
-    status: 'READY'
-  });
+  logger.info(`🚀 API Transcrição iniciada - Port:${config.port} Env:${config.nodeEnv} PID:${process.pid}`);
 
-  logger.info('⚙️ Configurações carregadas', {
-    audio: {
-      chunkTime: `${config.audio.chunkTime}s`,
-      speedFactor: `${config.audio.speedFactor}x`,
-      maxFileSize: `${config.audio.maxFileSizeMB}MB`,
-      allowedFormats: config.audio.allowedFormats.join(', '),
-      quality: `Level ${config.audio.quality}`
-    },
-    transcription: {
-      maxRetries: config.transcription.maxRetries,
-      concurrentChunks: config.transcription.concurrentChunks,
-      timeout: `${config.transcription.requestTimeout / 1000}s`,
-      model: config.openai.model
-    },
-    rateLimiting: {
-      window: `${config.rateLimit.windowMs / 60000}min`,
-      maxRequests: config.rateLimit.maxRequests
-    }
-  });
+  logger.info(`⚙️ Audio: ${config.audio.maxFileSizeMB}MB max, ${config.audio.speedFactor}x speed, Level ${config.audio.quality} quality`);
 
-  logger.info('🌍 SERVIDOR PRONTO PARA CONEXÕES', {
-    baseUrl: `http://localhost:${config.port}`,
-    endpoints: {
-      main: 'GET /',
-      transcribe: 'POST /transcribe (requer Bearer token)',
-      health: 'GET /health',
-      status: 'GET /status/:jobId (requer Bearer token)'
-    },
-    documentation: {
-      curl_example: `curl -X POST http://localhost:${config.port}/transcribe -H "Authorization: Bearer YOUR_API_KEY" -F "audio=@file.mp3"`,
-      formats: 'json (default), srt, txt'
-    },
-    ready: true
-  });
+  logger.info(`⚙️ Whisper: Model ${config.openai.model}, ${config.transcription.concurrentChunks} chunks, ${config.transcription.maxRetries} retries`);
+
+  logger.info(`⚙️ Rate Limit: ${config.rateLimit.maxRequests} req/${config.rateLimit.windowMs / 60000}min`);
+
+  logger.info(`🌍 Servidor pronto em http://localhost:${config.port} - Endpoints: POST /transcribe, GET /health, GET /status/:jobId`);
 });
 
 process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
 process.on('SIGINT', () => gracefulShutdown('SIGINT'));
 
 process.on('uncaughtException', (error) => {
-  logger.error('💥 EXCEÇÃO NÃO TRATADA - FINALIZANDO PROCESSO', {
-    error: error.message,
-    stack: error.stack,
-    pid: process.pid,
-    timestamp: new Date().toISOString()
-  });
+  logger.error(`💥 Exceção não tratada - PID:${process.pid} - ${error.message}`);
+  logger.debug('Stack trace:', { stack: error.stack });
   process.exit(1);
 });
 
 process.on('unhandledRejection', (reason, promise) => {
-  logger.error('💥 REJEIÇÃO NÃO TRATADA - FINALIZANDO PROCESSO', {
-    reason: reason instanceof Error ? reason.message : String(reason),
+  const errorMsg = reason instanceof Error ? reason.message : String(reason);
+  logger.error(`💥 Promise rejeitada - PID:${process.pid} - ${errorMsg}`);
+  logger.debug('Promise details:', {
     stack: reason instanceof Error ? reason.stack : 'N/A',
-    promise: promise.toString(),
-    pid: process.pid,
-    timestamp: new Date().toISOString()
+    promise: promise.toString()
   });
   process.exit(1);
 });

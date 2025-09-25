@@ -52,14 +52,10 @@ app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 app.use((req, res, next) => {
   const requestId = `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
 
-  logger.info('💬 Nova requisição', {
+  logger.info(`💬 ${req.method} ${req.path} - ${req.ip}`, {
     requestId,
-    method: req.method,
-    path: req.path,
-    ip: req.ip,
-    userAgent: req.get('User-Agent')?.substring(0, 100) + '...',
-    contentLength: req.get('Content-Length') || '0',
-    timestamp: new Date().toISOString()
+    userAgent: req.get('User-Agent')?.substring(0, 50) + '...',
+    contentLength: req.get('Content-Length') || '0'
   });
 
   const startTime = Date.now();
@@ -67,15 +63,12 @@ app.use((req, res, next) => {
   res.on('finish', () => {
     const duration = Date.now() - startTime;
     const statusIcon = res.statusCode < 400 ? '✅' : res.statusCode < 500 ? '⚠️' : '❌';
-    logger.info(`${statusIcon} Requisição finalizada`, {
+    const status = res.statusCode < 400 ? 'SUCCESS' : res.statusCode < 500 ? 'WARNING' : 'ERROR';
+
+    logger.info(`${statusIcon} ${req.method} ${req.path} - ${res.statusCode} - ${duration}ms`, {
       requestId,
-      method: req.method,
-      path: req.path,
-      statusCode: res.statusCode,
-      duration: `${duration}ms`,
-      durationSec: (duration / 1000).toFixed(2),
-      contentLength: res.get('Content-Length') || '0',
-      success: res.statusCode < 400
+      status,
+      duration: `${duration}ms`
     });
   });
 
@@ -139,13 +132,9 @@ app.use('*', (req, res) => {
 app.use((error: any, req: any, res: any, next: any) => {
   const errorId = `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
 
-  logger.error('Unhandled error', {
-    errorId,
+  logger.error(`💥 Erro interno - ${req.method} ${req.path} - ${req.ip} - ID: ${errorId}`, {
     error: error.message,
-    stack: error.stack,
-    method: req.method,
-    path: req.path,
-    ip: req.ip
+    stack: error.stack
   });
 
   if (res.headersSent) {

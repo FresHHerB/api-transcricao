@@ -14,8 +14,27 @@ const logFormat = winston.format.combine(
 );
 
 const consoleFormat = winston.format.combine(
+  winston.format.timestamp({ format: 'YYYY-MM-DD HH:mm:ss' }),
   winston.format.colorize(),
-  winston.format.simple()
+  winston.format.printf(({ timestamp, level, message, service, jobId, ...meta }) => {
+    const messageStr = String(message);
+    let baseLog = `${timestamp} - ${service || 'api-transcricao'} - ${level}`;
+    if (jobId) baseLog += ` [${jobId}]`;
+    baseLog += ` - ${messageStr}`;
+
+    // Don't print metadata for simple messages to keep logs clean
+    const shouldShowMeta = Object.keys(meta).length > 0 &&
+                          !messageStr.includes('💬') &&
+                          !messageStr.includes('✅') &&
+                          !messageStr.includes('⚠️') &&
+                          !messageStr.includes('❌');
+
+    if (shouldShowMeta) {
+      baseLog += ` ${JSON.stringify(meta)}`;
+    }
+
+    return baseLog;
+  })
 );
 
 export const logger = winston.createLogger({
