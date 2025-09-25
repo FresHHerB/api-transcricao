@@ -137,7 +137,7 @@ export class TranscriptionService {
         status: metrics.failedChunks > 0 ? 'completed_with_warnings' : 'completed',
         speedFactor: speedFactor || config.audio.speedFactor,
         chunkLengthS: config.audio.chunkTime,
-        sourceDurationS: duration,
+        sourceDurationS: originalDuration, // CORREÇÃO: Usar duração original do arquivo fonte
         processedChunks: metrics.chunksProcessed,
         failedChunks: chunkResults
           .filter(r => !r.success)
@@ -310,33 +310,69 @@ export class TranscriptionService {
           }
         }
       } else {
-        // Para chunks com falha, estimar o tempo final baseado na duração do chunk
-        const estimatedDuration = config.audio.chunkTime;
-        lastEndTime = Math.max(lastEndTime, chunkStartTime + estimatedDuration);
+        // CORREÇÃO CRÍTICA: Usar a duração real do chunk que falhou
+        const actualChunkDuration = result.chunkDuration;
+        lastEndTime = Math.max(lastEndTime, chunkStartTime + actualChunkDuration);
 
         const chunkName = path.basename(result.chunkPath);
-        const warning = `${chunkName} (${chunkStartTime.toFixed(2)}s-${(chunkStartTime + estimatedDuration).toFixed(2)}s): ${result.error || 'transcription failed'}`;
+        const warning = `${chunkName} (${chunkStartTime.toFixed(2)}s-${(chunkStartTime + actualChunkDuration).toFixed(2)}s): ${result.error || 'transcription failed'}`;
         warnings.push(warning);
 
-        logger.error('🚨 Chunk com falha - timeline estimada', {
+        logger.error('🚨 Chunk com falha - timeline precisa estimada', {
           chunkIndex: result.chunkIndex,
           chunkPath: result.chunkPath,
-          expectedRange: `${chunkStartTime.toFixed(2)}s-${(chunkStartTime + estimatedDuration).toFixed(2)}s`,
+          actualRange: `${chunkStartTime.toFixed(2)}s-${(chunkStartTime + actualChunkDuration).toFixed(2)}s`,
+          chunkDuration: `${actualChunkDuration.toFixed(2)}s`,
           error: result.error,
-          impact: `${estimatedDuration}s de áudio sem transcrição`
+          impact: `${actualChunkDuration.toFixed(2)}s de áudio sem transcrição (duração exata)`
         });
       }
     }
 
-    // VALIDAÇÃO FINAL DA TIMELINE
+    // VALIDAÇÃO FINAL RIGOROSA DA TIMELINE
     const lastResult = sortedResults[sortedResults.length - 1];
-    const totalExpectedDuration = lastResult ? lastResult.chunkStartTime + config.audio.chunkTime : 0;
+    const totalExpectedDuration = lastResult ? lastResult.chunkStartTime + lastResult.chunkDuration : 0;
+    const timelineDiscrepancy = Math.abs(lastEndTime - totalExpectedDuration);
+    const MAX_ACCEPTABLE_GAP = 60; // 60 segundos de tolerância
+
+    // CALCULAR MÉTRICAS DE QUALIDADE LOCALMENTE
+    const failedChunks = sortedResults.filter(r => !r.success).length;
+    const totalChunks = sortedResults.length;
+    const failureRate = totalChunks > 0 ? (failedChunks / totalChunks) : 0;
+
+    // VALIDAÇÃO CRÍTICA: Detectar problemas graves de timeline
+    const hasSignificantGaps = timelineDiscrepancy > MAX_ACCEPTABLE_GAP;
+    const hasLowSegmentDensity = segments.length < (totalExpectedDuration / 60); // Menos de 1 segmento por minuto
+    const hasHighFailureRate = failureRate > 0.3; // Mais de 30% de falhas
+
+    if (hasSignificantGaps || hasLowSegmentDensity || hasHighFailureRate) {
+      logger.error('🚨 TRANSCRIÇÃO COMPROMETIDA DETECTADA', {
+        timelineDiscrepancy: `${timelineDiscrepancy.toFixed(2)}s`,
+        segmentDensity: `${(segments.length / (totalExpectedDuration / 60)).toFixed(1)} seg/min`,
+        failureRate: `${(failureRate * 100).toFixed(1)}%`,
+        failedChunks,
+        totalChunks,
+        hasSignificantGaps,
+        hasLowSegmentDensity,
+        hasHighFailureRate,
+        recommendation: 'Transcrição pode estar corrompida - investigar arquivo de origem'
+      });
+
+      warnings.push(`QUALITY_ALERT: Transcription quality may be compromised (${timelineDiscrepancy.toFixed(1)}s gap, ${(failureRate * 100).toFixed(1)}% failures)`);
+    }
+
     logger.info('📊 Timeline final validada', {
       totalSegments: segments.length,
       finalTimestamp: lastEndTime.toFixed(2),
       expectedDuration: totalExpectedDuration.toFixed(2),
-      timelineIntegrity: Math.abs(lastEndTime - totalExpectedDuration) < 60 ? '✅ ÍNTEGRA' : '⚠️ INCONSISTENTE',
-      warningsCount: warnings.length
+      timelineDiscrepancy: `${timelineDiscrepancy.toFixed(2)}s`,
+      segmentDensity: `${(segments.length / Math.max(1, totalExpectedDuration / 60)).toFixed(1)} seg/min`,
+      failureRate: `${(failureRate * 100).toFixed(1)}%`,
+      failedChunks,
+      totalChunks,
+      timelineIntegrity: hasSignificantGaps || hasLowSegmentDensity || hasHighFailureRate ? '⚠️ COMPROMETIDA' : '✅ ÍNTEGRA',
+      warningsCount: warnings.length,
+      qualityAssurance: hasSignificantGaps || hasLowSegmentDensity || hasHighFailureRate ? '🚨 NEEDS_REVIEW' : '✅ PASSED'
     });
 
     return { segments, warnings };

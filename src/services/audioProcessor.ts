@@ -6,6 +6,14 @@ import { logger } from '../utils/logger';
 import { AudioChunk } from '../types';
 import { v4 as uuidv4 } from 'uuid';
 
+interface ValidationResult {
+  isValid: boolean;
+  error?: string;
+  expectedDuration: number;
+  actualDuration: number;
+  accuracyPercent: number;
+}
+
 export class AudioProcessor {
   private tempDir: string;
   private chunkDir: string;
@@ -81,24 +89,43 @@ export class AudioProcessor {
             });
           }
         })
-        .on('end', () => {
+        .on('end', async () => {
           const originalDuration = duration / config.audio.speedFactor;
 
-          logger.info('✅ Áudio processado com sucesso', {
-            processedPath: path.basename(processedPath),
-            acceleratedDuration: `${duration.toFixed(2)}s`,
-            originalDuration: `${originalDuration.toFixed(2)}s`,
-            compression: `${config.audio.speedFactor}x faster`,
-            nextPhase: 'Chunking'
-          });
+          // VALIDAÇÃO CRÍTICA: Verificar se o arquivo processado não está corrompido
+          try {
+            const validationResult = await this.validateProcessedAudio(processedPath, originalDuration, config.audio.speedFactor);
 
-          // CORREÇÃO CRÍTICA: Retornar a duração do áudio processado (acelerado)
-          // para que os chunks sejam criados baseados no arquivo real que será transcrito
-          resolve({
-            processedPath,
-            duration: duration, // Duração acelerada (real do arquivo processado)
-            originalDuration: originalDuration // Duração original para referência
-          });
+            if (!validationResult.isValid) {
+              reject(new Error(`Audio processing validation failed: ${validationResult.error}`));
+              return;
+            }
+
+            logger.info('✅ Áudio processado e validado com sucesso', {
+              processedPath: path.basename(processedPath),
+              acceleratedDuration: `${duration.toFixed(2)}s`,
+              originalDuration: `${originalDuration.toFixed(2)}s`,
+              expectedAcceleratedDuration: `${validationResult.expectedDuration.toFixed(2)}s`,
+              durationAccuracy: `${validationResult.accuracyPercent.toFixed(1)}%`,
+              compression: `${config.audio.speedFactor}x faster`,
+              validation: '✅ PASSED',
+              nextPhase: 'Chunking'
+            });
+
+            resolve({
+              processedPath,
+              duration: duration,
+              originalDuration: originalDuration
+            });
+          } catch (validationError) {
+            const errorMsg = validationError instanceof Error ? validationError.message : 'Unknown validation error';
+            logger.error('❌ Falha na validação pós-processamento', {
+              processedPath: path.basename(processedPath),
+              error: errorMsg,
+              phase: 'Audio validation'
+            });
+            reject(new Error(`Audio validation failed: ${errorMsg}`));
+          }
         })
         .on('error', (err) => {
           logger.error('❌ Falha no processamento de áudio', {
@@ -223,5 +250,72 @@ export class AudioProcessor {
 
   getChunkDir(): string {
     return this.chunkDir;
+  }
+
+  private async validateProcessedAudio(filePath: string, expectedOriginalDuration: number, speedFactor: number): Promise<ValidationResult> {
+    return new Promise((resolve, reject) => {
+      ffmpeg.ffprobe(filePath, (err, metadata) => {
+        if (err) {
+          reject(new Error(`FFprobe validation failed: ${err.message}`));
+          return;
+        }
+
+        const actualDuration = metadata.format.duration || 0;
+        const expectedAcceleratedDuration = expectedOriginalDuration / speedFactor;
+
+        // Calcular precisão
+        const durationDiff = Math.abs(actualDuration - expectedAcceleratedDuration);
+        const accuracyPercent = Math.max(0, 100 - (durationDiff / expectedAcceleratedDuration) * 100);
+
+        // Validações críticas
+        const MAX_DURATION_ERROR_PERCENT = 5; // Tolerância de 5%
+        const MIN_ACCURACY = 95;
+
+        let isValid = true;
+        let error = '';
+
+        // VALIDAÇÃO 1: Duração não pode estar drasticamente errada
+        if (accuracyPercent < MIN_ACCURACY) {
+          isValid = false;
+          error = `Duration mismatch: expected ${expectedAcceleratedDuration.toFixed(2)}s, got ${actualDuration.toFixed(2)}s (accuracy: ${accuracyPercent.toFixed(1)}%)`;
+        }
+
+        // VALIDAÇÃO 2: Detectar duplicação (áudio 2x maior que esperado)
+        if (actualDuration > expectedAcceleratedDuration * 1.9) {
+          isValid = false;
+          error = `Possible audio duplication detected: file is ${(actualDuration / expectedAcceleratedDuration).toFixed(1)}x longer than expected`;
+        }
+
+        // VALIDAÇÃO 3: Detectar corrupção (áudio muito pequeno)
+        if (actualDuration < expectedAcceleratedDuration * 0.5) {
+          isValid = false;
+          error = `Possible audio corruption: file is only ${(actualDuration / expectedAcceleratedDuration).toFixed(1)}x the expected duration`;
+        }
+
+        // VALIDAÇÃO 4: Verificar se o arquivo existe e tem tamanho > 0
+        const stats = fs.statSync(filePath);
+        if (stats.size === 0) {
+          isValid = false;
+          error = 'Output file is empty (0 bytes)';
+        }
+
+        logger.debug('🔍 Audio validation completed', {
+          expectedDuration: expectedAcceleratedDuration.toFixed(2),
+          actualDuration: actualDuration.toFixed(2),
+          accuracyPercent: accuracyPercent.toFixed(1),
+          fileSizeBytes: stats.size,
+          isValid,
+          error: error || 'No errors'
+        });
+
+        resolve({
+          isValid,
+          error,
+          expectedDuration: expectedAcceleratedDuration,
+          actualDuration,
+          accuracyPercent
+        });
+      });
+    });
   }
 }

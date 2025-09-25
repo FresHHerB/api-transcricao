@@ -82,6 +82,7 @@ export class WhisperService {
           chunkIndex: chunk.index,
           chunkPath: chunk.path,
           chunkStartTime: chunk.startTime,
+          chunkDuration: chunk.duration,
           success: true,
           segments: cachedData.segments,
           retries: 0,
@@ -118,12 +119,36 @@ export class WhisperService {
 
             fs.writeFileSync(cacheFile, JSON.stringify(response, null, 2));
 
-            logger.info('✅ Transcrição bem-sucedida', {
+            // VALIDAÇÃO CRÍTICA: Detectar falhas silenciosas da API
+            const isEmptyResult = !response.segments || response.segments.length === 0;
+            const hasMinimalText = (response.text?.trim().length || 0) < 10;
+            const isSuspiciouslyShort = (response.duration || 0) < chunk.duration * 0.1;
+
+            if (isEmptyResult || (hasMinimalText && isSuspiciouslyShort)) {
+              const suspicionReason = isEmptyResult ? 'No segments returned' :
+                                    hasMinimalText ? `Minimal text (${response.text?.length || 0} chars)` :
+                                    'Suspiciously short duration';
+
+              logger.warn('🚨 WHISPER API FALHA SILENCIOSA DETECTADA', {
+                chunkIndex: chunk.index,
+                suspicion: suspicionReason,
+                segments: response.segments?.length || 0,
+                textLength: response.text?.length || 0,
+                responseDuration: response.duration?.toFixed(2) || 'N/A',
+                expectedMinDuration: (chunk.duration * 0.1).toFixed(2),
+                action: 'Marcando chunk como falha'
+              });
+
+              throw new Error(`Whisper API returned suspicious result: ${suspicionReason}`);
+            }
+
+            logger.info('✅ Transcrição bem-sucedida e validada', {
               chunkIndex: chunk.index,
               segments: response.segments?.length || 0,
               duration: `${response.duration?.toFixed(2)}s`,
               language: response.language || 'N/A',
               characters: response.text?.length || 0,
+              validation: '✅ PASSED',
               cached: 'Salvando resultado em cache'
             });
 
@@ -131,6 +156,7 @@ export class WhisperService {
               chunkIndex: chunk.index,
               chunkPath: chunk.path,
               chunkStartTime: chunk.startTime,
+              chunkDuration: chunk.duration,
               success: true,
               segments: response.segments,
               retries: retryCount,
@@ -205,6 +231,7 @@ export class WhisperService {
         chunkIndex: chunk.index,
         chunkPath: chunk.path,
         chunkStartTime: chunk.startTime,
+        chunkDuration: chunk.duration,
         success: false,
         error: errorMessage,
         retries: retryCount

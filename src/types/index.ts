@@ -37,6 +37,7 @@ export interface ChunkResult {
   chunkIndex: number;
   chunkPath: string;
   chunkStartTime: number; // Tempo de início original do chunk (sem speed factor)
+  chunkDuration: number;  // Duração original do chunk (para estimativas em caso de falha)
   success: boolean;
   segments?: WhisperSegment[];
   error?: string;

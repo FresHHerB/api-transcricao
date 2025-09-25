@@ -7,7 +7,9 @@
       "Bash(git commit:*)",
       "Bash(docker build:*)",
       "Read(//d/code/freela/autodark/**)",
-      "Read(//d/code/freela/server-api/**)"
+      "Read(//d/code/freela/server-api/**)",
+      "Bash(npm start)",
+      "Bash(curl:*)"
     ],
     "deny": [],
     "ask": []
