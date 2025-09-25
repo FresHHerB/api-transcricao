@@ -46,25 +46,27 @@ export class AudioProcessor {
     });
 
     return new Promise((resolve, reject) => {
-      let duration = 0;
+      let originalDuration = 0;
 
       ffmpeg(inputPath)
         .audioFilters(`atempo=${config.audio.speedFactor}`)
         .audioCodec('libvorbis')
         .audioQuality(config.audio.quality)
         .on('codecData', (data) => {
-          duration = this.parseDuration(data.duration);
-          const originalDuration = duration / config.audio.speedFactor;
+          // CORREÇÃO: data.duration é a duração do arquivo de ENTRADA original
+          originalDuration = this.parseDuration(data.duration);
+          const expectedAcceleratedDuration = originalDuration / config.audio.speedFactor;
 
           // Validação: detectar possível conteúdo duplicado
           const suspiciouslyLong = originalDuration > 7200; // > 2 horas
           const possibleDuplication = originalDuration > 3600 && (originalDuration % 1800 < 60 || originalDuration % 1937 < 60);
 
           logger.info('📊 Informações do áudio detectadas', {
-            duration: `${duration.toFixed(2)}s`,
+            originalDuration: `${originalDuration.toFixed(2)}s`,
+            estimatedAcceleratedDuration: `${expectedAcceleratedDuration.toFixed(2)}s`,
             format: data.format,
-            estimatedOriginalDuration: `${originalDuration.toFixed(2)}s`,
             codec: data.audio_details || 'N/A',
+            speedFactor: config.audio.speedFactor,
             ...(suspiciouslyLong && { warning: '⚠️ Áudio muito longo - possível duplicação' }),
             ...(possibleDuplication && { alert: '🚨 Possível conteúdo duplicado detectado' })
           });
@@ -90,8 +92,6 @@ export class AudioProcessor {
           }
         })
         .on('end', async () => {
-          const originalDuration = duration / config.audio.speedFactor;
-
           // VALIDAÇÃO CRÍTICA: Verificar se o arquivo processado não está corrompido
           try {
             const validationResult = await this.validateProcessedAudio(processedPath, originalDuration, config.audio.speedFactor);
@@ -103,7 +103,7 @@ export class AudioProcessor {
 
             logger.info('✅ Áudio processado e validado com sucesso', {
               processedPath: path.basename(processedPath),
-              acceleratedDuration: `${duration.toFixed(2)}s`,
+              actualAcceleratedDuration: `${validationResult.actualDuration.toFixed(2)}s`,
               originalDuration: `${originalDuration.toFixed(2)}s`,
               expectedAcceleratedDuration: `${validationResult.expectedDuration.toFixed(2)}s`,
               durationAccuracy: `${validationResult.accuracyPercent.toFixed(1)}%`,
@@ -114,8 +114,8 @@ export class AudioProcessor {
 
             resolve({
               processedPath,
-              duration: duration,
-              originalDuration: originalDuration
+              duration: validationResult.actualDuration, // Duração real do arquivo processado
+              originalDuration: originalDuration // Duração original correta
             });
           } catch (validationError) {
             const errorMsg = validationError instanceof Error ? validationError.message : 'Unknown validation error';
