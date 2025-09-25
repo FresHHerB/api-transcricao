@@ -58,33 +58,36 @@ export class TranscriptionService {
         speedFactor: speedFactor || config.audio.speedFactor
       });
 
-      const { processedPath, duration } = await audioProcessor.processAudio(audioPath);
+      const { processedPath, duration, originalDuration } = await audioProcessor.processAudio(audioPath);
 
       jobLogger.info('✅ ÁUDIO PROCESSADO COM SUCESSO', {
         phase: 'AUDIO_PROCESSING_COMPLETE',
-        duration,
+        acceleratedDuration: duration,
+        originalDuration,
         processedPath,
-        originalDurationEstimate: duration / (speedFactor || config.audio.speedFactor),
+        speedFactor: speedFactor || config.audio.speedFactor,
         compressionRatio: '2x speed + OGG compression'
       });
 
       jobLogger.info('✂️ FASE 2: Criando chunks', {
         phase: 'CHUNKING',
-        totalDuration: duration,
+        originalDuration: originalDuration,
+        acceleratedDuration: duration,
         chunkSize: config.audio.chunkTime,
-        estimatedChunks: Math.ceil(duration / config.audio.chunkTime)
+        estimatedChunks: Math.ceil(originalDuration / config.audio.chunkTime)
       });
 
-      const chunks = await audioProcessor.createChunks(processedPath, duration);
+      const chunks = await audioProcessor.createChunks(processedPath, duration, originalDuration);
       metrics.totalChunks = chunks.length;
 
       jobLogger.info('📦 CHUNKS CRIADOS COM SUCESSO', {
         phase: 'CHUNKING_COMPLETE',
         totalChunks: chunks.length,
-        averageChunkDuration: duration / chunks.length,
+        averageOriginalChunkDuration: originalDuration / chunks.length,
         chunksInfo: chunks.map((c, i) => ({
           index: c.index,
-          duration: c.duration,
+          originalDuration: c.duration,
+          originalStartTime: c.startTime,
           path: path.basename(c.path)
         }))
       });
@@ -246,48 +249,95 @@ export class TranscriptionService {
     const segments: TranscriptionSegment[] = [];
     const warnings: string[] = [];
     let segmentIndex = 1;
+    let lastEndTime = 0;
 
-    for (const result of chunkResults) {
-      // CORREÇÃO PRINCIPAL: Usar o startTime real de cada chunk em vez de acumular offset
-      const timeOffset = result.chunkStartTime;
+    // Ordenar chunks por índice para garantir sequência correta
+    const sortedResults = chunkResults.sort((a, b) => a.chunkIndex - b.chunkIndex);
+
+    for (let i = 0; i < sortedResults.length; i++) {
+      const result = sortedResults[i];
+      if (!result) continue; // Skip undefined results
+
+      const chunkStartTime = result.chunkStartTime;
+
+      // VALIDAÇÃO DE CONTINUIDADE: Verificar se há gap ou sobreposição
+      if (i > 0) {
+        const gap = chunkStartTime - lastEndTime;
+        if (Math.abs(gap) > 1) { // Tolerância de 1s
+          const gapType = gap > 0 ? 'GAP' : 'OVERLAP';
+          logger.warn(`⚠️ ${gapType} detectado entre chunks`, {
+            chunkIndex: result.chunkIndex,
+            expectedStart: lastEndTime.toFixed(2),
+            actualStart: chunkStartTime.toFixed(2),
+            difference: `${Math.abs(gap).toFixed(2)}s`,
+            impact: gapType === 'GAP' ? 'Possível áudio perdido' : 'Possível duplicação'
+          });
+          warnings.push(`${gapType}: ${Math.abs(gap).toFixed(1)}s between chunks ${i} and ${i+1}`);
+        }
+      }
 
       if (result.success && result.segments) {
         for (const segment of result.segments) {
           const correctedSegment: TranscriptionSegment = {
             index: segmentIndex++,
-            // A API da Whisper já retorna timestamps para o áudio acelerado
-            // Somamos apenas o tempo de início real do chunk
-            start: segment.start + timeOffset,
-            end: segment.end + timeOffset,
+            // CORREÇÃO FINAL: Whisper retorna timestamps do áudio acelerado
+            // Como chunkStartTime já está na timeline original, só desaceleramos e somamos
+            start: (segment.start * speedFactor) + chunkStartTime,
+            end: (segment.end * speedFactor) + chunkStartTime,
             text: segment.text.trim()
           };
 
           if (correctedSegment.text) {
             segments.push(correctedSegment);
+            lastEndTime = Math.max(lastEndTime, correctedSegment.end);
           }
         }
 
-        logger.debug('🎯 Chunk processado com timestamps corrigidos', {
-          chunkIndex: result.chunkIndex,
-          chunkStartTime: timeOffset.toFixed(2),
-          segmentsInChunk: result.segments.length,
-          firstSegmentStart: result.segments[0]?.start.toFixed(2),
-          lastSegmentEnd: result.segments[result.segments.length - 1]?.end.toFixed(2)
-        });
+        // LOG DE VALIDAÇÃO DETALHADO
+        if (result.segments.length > 0) {
+          const firstSegment = result.segments[0];
+          const lastSegment = result.segments[result.segments.length - 1];
+          if (firstSegment && lastSegment) {
+            logger.info('🎯 Chunk processado com timestamps validados', {
+              chunkIndex: result.chunkIndex,
+              chunkStartTime: `${chunkStartTime.toFixed(2)}s`,
+              segmentsInChunk: result.segments.length,
+              whisperRange: `${firstSegment.start.toFixed(2)}s-${lastSegment.end.toFixed(2)}s (acelerado)`,
+              correctedRange: `${((firstSegment.start * speedFactor) + chunkStartTime).toFixed(2)}s-${((lastSegment.end * speedFactor) + chunkStartTime).toFixed(2)}s`,
+              speedFactor,
+              continuityCheck: i > 0 ? `Continuous timeline` : 'First chunk'
+            });
+          }
+        }
       } else {
+        // Para chunks com falha, estimar o tempo final baseado na duração do chunk
+        const estimatedDuration = config.audio.chunkTime;
+        lastEndTime = Math.max(lastEndTime, chunkStartTime + estimatedDuration);
+
         const chunkName = path.basename(result.chunkPath);
-        const warning = `${chunkName} (starts at ${timeOffset.toFixed(2)}s): ${result.error || 'transcription failed'}`;
+        const warning = `${chunkName} (${chunkStartTime.toFixed(2)}s-${(chunkStartTime + estimatedDuration).toFixed(2)}s): ${result.error || 'transcription failed'}`;
         warnings.push(warning);
 
-        logger.warn('🚨 Chunk com falha - timestamps perdidos', {
+        logger.error('🚨 Chunk com falha - timeline estimada', {
           chunkIndex: result.chunkIndex,
           chunkPath: result.chunkPath,
-          chunkStartTime: `${timeOffset.toFixed(2)}s`,
+          expectedRange: `${chunkStartTime.toFixed(2)}s-${(chunkStartTime + estimatedDuration).toFixed(2)}s`,
           error: result.error,
-          impact: 'Segmento de áudio sem transcrição'
+          impact: `${estimatedDuration}s de áudio sem transcrição`
         });
       }
     }
+
+    // VALIDAÇÃO FINAL DA TIMELINE
+    const lastResult = sortedResults[sortedResults.length - 1];
+    const totalExpectedDuration = lastResult ? lastResult.chunkStartTime + config.audio.chunkTime : 0;
+    logger.info('📊 Timeline final validada', {
+      totalSegments: segments.length,
+      finalTimestamp: lastEndTime.toFixed(2),
+      expectedDuration: totalExpectedDuration.toFixed(2),
+      timelineIntegrity: Math.abs(lastEndTime - totalExpectedDuration) < 60 ? '✅ ÍNTEGRA' : '⚠️ INCONSISTENTE',
+      warningsCount: warnings.length
+    });
 
     return { segments, warnings };
   }

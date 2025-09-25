@@ -26,7 +26,7 @@ export class AudioProcessor {
     }
   }
 
-  async processAudio(inputPath: string): Promise<{ processedPath: string; duration: number }> {
+  async processAudio(inputPath: string): Promise<{ processedPath: string; duration: number; originalDuration: number }> {
     const processedPath = path.join(this.chunkDir, 'processed_audio.ogg');
 
     logger.info('🎧 Iniciando processamento de áudio', {
@@ -83,6 +83,7 @@ export class AudioProcessor {
         })
         .on('end', () => {
           const originalDuration = duration / config.audio.speedFactor;
+
           logger.info('✅ Áudio processado com sucesso', {
             processedPath: path.basename(processedPath),
             acceleratedDuration: `${duration.toFixed(2)}s`,
@@ -90,9 +91,13 @@ export class AudioProcessor {
             compression: `${config.audio.speedFactor}x faster`,
             nextPhase: 'Chunking'
           });
+
+          // CORREÇÃO CRÍTICA: Retornar a duração do áudio processado (acelerado)
+          // para que os chunks sejam criados baseados no arquivo real que será transcrito
           resolve({
             processedPath,
-            duration: originalDuration
+            duration: duration, // Duração acelerada (real do arquivo processado)
+            originalDuration: originalDuration // Duração original para referência
           });
         })
         .on('error', (err) => {
@@ -107,46 +112,54 @@ export class AudioProcessor {
     });
   }
 
-  async createChunks(processedPath: string, totalDuration: number): Promise<AudioChunk[]> {
+  async createChunks(processedPath: string, acceleratedDuration: number, originalDuration: number): Promise<AudioChunk[]> {
     const chunks: AudioChunk[] = [];
     const chunkDuration = config.audio.chunkTime;
-    const totalChunks = Math.ceil(totalDuration / chunkDuration);
+    const totalChunks = Math.ceil(originalDuration / chunkDuration);
 
     logger.info('🔪 Iniciando divisão em chunks', {
-      totalDuration: `${totalDuration.toFixed(2)}s`,
+      originalDuration: `${originalDuration.toFixed(2)}s`,
+      acceleratedDuration: `${acceleratedDuration.toFixed(2)}s`,
       chunkDuration: `${chunkDuration}s`,
       totalChunks,
-      estimatedChunkSizes: `~${chunkDuration}s each`,
-      processingStrategy: 'Parallel chunks for Whisper API'
+      estimatedChunkSizes: `~${chunkDuration}s each (original timeline)`,
+      processingStrategy: 'Chunks baseados na timeline original, arquivo físico acelerado'
     });
 
     for (let i = 0; i < totalChunks; i++) {
-      const startTime = i * chunkDuration;
-      const chunkPath = path.join(this.chunkDir, `chunk_${String(i + 1).padStart(3, '0')}.mp3`);
-      const actualDuration = Math.min(chunkDuration, totalDuration - startTime);
+      // CORREÇÃO: startTime na timeline ORIGINAL
+      const originalStartTime = i * chunkDuration;
+      const originalChunkDuration = Math.min(chunkDuration, originalDuration - originalStartTime);
 
-      await this.createChunk(processedPath, chunkPath, startTime, actualDuration);
+      // Converter para coordenadas do arquivo acelerado para o FFmpeg
+      const acceleratedStartTime = originalStartTime / config.audio.speedFactor;
+      const acceleratedChunkDuration = originalChunkDuration / config.audio.speedFactor;
+
+      const chunkPath = path.join(this.chunkDir, `chunk_${String(i + 1).padStart(3, '0')}.mp3`);
+
+      await this.createChunk(processedPath, chunkPath, acceleratedStartTime, acceleratedChunkDuration);
 
       chunks.push({
         index: i + 1,
         path: chunkPath,
-        duration: actualDuration,
-        startTime
+        duration: originalChunkDuration, // Duração na timeline original
+        startTime: originalStartTime    // Tempo de início na timeline original
       });
 
       logger.info('📦 Chunk criado', {
         chunkNumber: `${i + 1}/${totalChunks}`,
         chunkPath: path.basename(chunkPath),
-        startTime: `${startTime.toFixed(2)}s`,
-        duration: `${actualDuration.toFixed(2)}s`,
+        originalRange: `${originalStartTime.toFixed(2)}s-${(originalStartTime + originalChunkDuration).toFixed(2)}s`,
+        acceleratedRange: `${acceleratedStartTime.toFixed(2)}s-${(acceleratedStartTime + acceleratedChunkDuration).toFixed(2)}s`,
         progress: `${(((i + 1) / totalChunks) * 100).toFixed(1)}%`
       });
     }
 
     logger.info('🎯 TODOS OS CHUNKS CRIADOS!', {
       totalChunks: chunks.length,
-      totalSize: `${totalDuration.toFixed(2)}s de áudio`,
-      averageChunkSize: `${(totalDuration / chunks.length).toFixed(2)}s`,
+      originalTotalSize: `${originalDuration.toFixed(2)}s`,
+      acceleratedTotalSize: `${acceleratedDuration.toFixed(2)}s`,
+      averageOriginalChunkSize: `${(originalDuration / chunks.length).toFixed(2)}s`,
       nextPhase: 'Enviando para OpenAI Whisper API',
       readyForTranscription: true
     });
