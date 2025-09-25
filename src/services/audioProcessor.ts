@@ -332,7 +332,7 @@ export class AudioProcessor {
       );
 
       chunks.push({
-        index: plan.index,
+        index: plan.index + 1, // Convert to 1-based indexing for consistency
         path: chunkPath,
         duration: plan.duration,
         startTime: plan.actualStart
@@ -368,6 +368,15 @@ export class AudioProcessor {
       const remainingDuration = totalDuration - currentStart;
       const targetDuration = Math.min(idealChunkDuration, remainingDuration);
       const targetEnd = currentStart + targetDuration;
+
+      logger.debug(`📋 Planejando chunk ${chunkIndex}`, {
+        chunkIndex,
+        currentStart: currentStart.toFixed(2),
+        remainingDuration: remainingDuration.toFixed(2),
+        targetDuration: targetDuration.toFixed(2),
+        targetEnd: targetEnd.toFixed(2),
+        totalDuration: totalDuration.toFixed(2)
+      });
 
       // Find the best silence point within the window
       const windowStart = Math.max(0, targetEnd - silenceWindow);

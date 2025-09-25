@@ -167,7 +167,7 @@ export class WhisperService {
       const result = await retry(
         async (bail, attemptNumber) => {
           retryCount = attemptNumber - 1;
-          logger.info('🤖 Enviando para Whisper API', {
+          logger.info(`🤖 Enviando Chunk ${chunk.index} para Whisper API`, {
             chunkIndex: chunk.index,
             attempt: attemptNumber,
             chunkPath: path.basename(chunk.path),
@@ -182,13 +182,13 @@ export class WhisperService {
 
             fs.writeFileSync(cacheFile, JSON.stringify(response, null, 2));
 
-            logger.info('? Transcrição bem-sucedida e validada', {
+            logger.info(`✅ Chunk ${chunk.index} transcrito com sucesso`, {
               chunkIndex: chunk.index,
               segments: response.segments?.length || 0,
               duration: `${response.duration?.toFixed(2)}s`,
               language: response.language || 'N/A',
               characters: response.text?.length || 0,
-              validation: '? PASSED',
+              validation: '✅ PASSED',
               cached: 'Salvando resultado em cache'
             });
 
@@ -365,6 +365,39 @@ export class WhisperService {
   }
 
   private async callWhisperAPI(audioPath: string): Promise<WhisperResponse> {
+    // CRITICAL VALIDATION: Check file before sending to API
+    if (!fs.existsSync(audioPath)) {
+      throw new Error(`Audio file not found: ${audioPath}`);
+    }
+
+    const stats = fs.statSync(audioPath);
+    const fileSizeMB = stats.size / (1024 * 1024);
+
+    // Validate file size
+    if (stats.size === 0) {
+      throw new Error(`Audio file is empty (0 bytes): ${path.basename(audioPath)}`);
+    }
+
+    if (fileSizeMB > 25) {
+      throw new Error(`Audio file too large (${fileSizeMB.toFixed(2)}MB > 25MB limit): ${path.basename(audioPath)}`);
+    }
+
+    if (stats.size < 1000) { // Less than 1KB is suspicious
+      logger.warn('⚠️ Audio file very small, may cause API errors', {
+        audioPath: path.basename(audioPath),
+        sizeBytes: stats.size,
+        sizeMB: fileSizeMB.toFixed(3),
+        warning: 'File might be too short for transcription'
+      });
+    }
+
+    logger.debug('📤 Sending to Whisper API', {
+      audioPath: path.basename(audioPath),
+      sizeBytes: stats.size,
+      sizeMB: fileSizeMB.toFixed(2),
+      model: config.openai.model
+    });
+
     const formData = new FormData();
     formData.append('file', fs.createReadStream(audioPath));
     formData.append('model', config.openai.model);
