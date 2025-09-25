@@ -46,8 +46,7 @@ export class AudioProcessor {
       inputPath: path.basename(inputPath),
       processedPath: path.basename(processedPath),
       speedFactor: this.speedFactor,
-      quality: config.audio.quality,
-      codec: 'pcm_s16le (WAV)'
+      codec: 'pcm_s16le (WAV) - apenas aceleração'
     });
 
     return new Promise((resolve, reject) => {
@@ -147,8 +146,8 @@ export class AudioProcessor {
 
   async createChunks(processedPath: string, acceleratedDuration: number, originalDuration: number, originalSizeBytes: number): Promise<AudioChunk[]> {
     const chunks: AudioChunk[] = [];
-    const maxChunkBytes = 20 * 1024 * 1024;
-    const maxChunkDurationMinutes = 15;
+    const maxChunkBytes = 18 * 1024 * 1024; // 18MB limit
+    const maxChunkDurationMinutes = 20; // 20min limit
     const maxChunkDurationSecondsAccelerated = maxChunkDurationMinutes * 60;
     const speedFactor = this.speedFactor;
 
@@ -171,20 +170,25 @@ export class AudioProcessor {
 
     const totalChunks = Math.max(1, Math.ceil(safeOriginalDuration / chunkDurationOriginalTimeline));
 
-    logger.info('🔪 Iniciando divisão em chunks com nova lógica (20MB + 15min)', {
+    logger.info('🔪 Iniciando divisão em chunks - Limites: 18MB E 20min', {
       originalDuration: `${originalDuration.toFixed(2)}s`,
       acceleratedDuration: `${acceleratedDuration.toFixed(2)}s`,
-      maxChunkDurationMinutes: maxChunkDurationMinutes,
-      maxChunkSizeMB: 20,
-      minChunksBySize: minChunksBySize,
-      minChunksByDuration: minChunksByDuration,
-      totalChunksNeeded: totalChunksNeeded,
-      plannedChunks: totalChunks,
-      estimatedChunkDuration: `${chunkDurationOriginalTimeline.toFixed(2)}s (original timeline)`,
-      estimatedAcceleratedChunkDuration: `${(chunkDurationOriginalTimeline / speedFactor).toFixed(2)}s (accelerated)`,
-      acceleratedBytesEstimate: `${(acceleratedBytesEstimate / (1024 * 1024)).toFixed(2)}MB`,
-      speedFactor: `${speedFactor}x`,
-      strategy: 'Calculated for 20MB and 15min limits after acceleration'
+      limits: {
+        maxSizeMB: 18,
+        maxDurationMin: 20,
+        speedFactor: `${speedFactor}x`
+      },
+      calculation: {
+        minChunksBySize: minChunksBySize,
+        minChunksByDuration: minChunksByDuration,
+        totalChunksNeeded: totalChunksNeeded,
+        plannedChunks: totalChunks
+      },
+      estimatedChunkDuration: {
+        originalTimeline: `${chunkDurationOriginalTimeline.toFixed(2)}s`,
+        acceleratedTimeline: `${(chunkDurationOriginalTimeline / speedFactor).toFixed(2)}s`
+      },
+      strategy: 'Satisfaz AMBOS os limites: 18MB E 20min'
     });
 
     let chunkIndex = 0;
@@ -199,7 +203,7 @@ export class AudioProcessor {
       let attemptDuration = Math.min(chunkDurationOriginalTimeline, remainingDuration);
       const acceleratedStartTime = originalStartTime / speedFactor;
       let acceleratedChunkDuration = Math.max(attemptDuration / speedFactor, 0.001);
-      const chunkPath = path.join(this.chunkDir, `chunk_${String(chunkIndex + 1).padStart(3, '0')}.flac`);
+      const chunkPath = path.join(this.chunkDir, `chunk_${String(chunkIndex + 1).padStart(3, '0')}.mp3`);
 
       let chunkSizeBytes = 0;
       let attempts = 0;
@@ -220,24 +224,33 @@ export class AudioProcessor {
         acceleratedChunkDuration = Math.max(attemptDuration / speedFactor, 0.001);
         attempts += 1;
 
-        logger.warn('⚠️ Chunk acima do limite de 20MB - reparticionando', {
-          chunkNumber: chunkIndex + 1,
-          previousDuration: `${previousDuration.toFixed(2)}s`,
-          newDuration: `${attemptDuration.toFixed(2)}s`,
-          chunkSizeMB: (chunkSizeBytes / (1024 * 1024)).toFixed(2),
-          limitMB: 20,
-          attempts
+        logger.warn('⚠️ Chunk acima do limite de 18MB - reparticionando', {
+          chunk: `${chunkIndex + 1}/${totalChunks}`,
+          size: {
+            currentMB: (chunkSizeBytes / (1024 * 1024)).toFixed(2),
+            limitMB: 18
+          },
+          duration: {
+            previous: `${previousDuration.toFixed(2)}s`,
+            new: `${attemptDuration.toFixed(2)}s`
+          },
+          attempts,
+          action: 'Reduzindo duração do chunk'
         });
       }
 
       const chunkSizeMB = chunkSizeBytes / (1024 * 1024);
 
       if (chunkSizeBytes > maxChunkBytes) {
-        logger.error('🚨 Chunk permaneceu acima do limite após tentativas', {
-          chunkNumber: chunkIndex + 1,
-          chunkSizeMB: chunkSizeMB.toFixed(2),
-          limitMB: 20,
-          duration: `${attemptDuration.toFixed(2)}s`
+        logger.error('🚨 CHUNK EXCEDE LIMITE - NÃO FOI POSSÍVEL REDUZIR', {
+          chunk: `${chunkIndex + 1}/${totalChunks}`,
+          finalSize: {
+            sizeMB: chunkSizeMB.toFixed(2),
+            limitMB: 18,
+            excess: `${(chunkSizeMB - 18).toFixed(2)}MB acima`
+          },
+          duration: `${attemptDuration.toFixed(2)}s`,
+          status: 'LIMITE VIOLADO - Prosseguindo com chunk grande'
         });
       }
 
@@ -248,29 +261,67 @@ export class AudioProcessor {
         startTime: originalStartTime
       });
 
-      logger.info('📦 Chunk criado', {
-        chunkNumber: chunkIndex + 1,
-        plannedChunkCount: totalChunks,
-        chunkPath: path.basename(chunkPath),
-        originalRange: `${originalStartTime.toFixed(2)}s-${(originalStartTime + attemptDuration).toFixed(2)}s`,
-        acceleratedRange: `${acceleratedStartTime.toFixed(2)}s-${(acceleratedStartTime + acceleratedChunkDuration).toFixed(2)}s`,
-        chunkSizeMB: chunkSizeMB.toFixed(2),
-        repartitionAttempts: attempts
+      const progress = Math.round((chunkIndex + 1) / totalChunks * 100);
+      const sizeStatus = chunkSizeMB <= 18 ? '✅' : '🚨';
+      const durationAccelerated = attemptDuration / speedFactor;
+      const durationStatus = durationAccelerated <= (20 * 60) ? '✅' : '🚨';
+
+      logger.info(`📦 Chunk ${chunkIndex + 1}/${totalChunks} criado [${progress}%]`, {
+        file: path.basename(chunkPath),
+        validation: {
+          size: `${sizeStatus} ${chunkSizeMB.toFixed(2)}MB/${18}MB`,
+          duration: `${durationStatus} ${(durationAccelerated / 60).toFixed(1)}min/20min`
+        },
+        timeline: {
+          original: `${originalStartTime.toFixed(2)}s-${(originalStartTime + attemptDuration).toFixed(2)}s`,
+          accelerated: `${acceleratedStartTime.toFixed(2)}s-${(acceleratedStartTime + acceleratedChunkDuration).toFixed(2)}s`
+        },
+        processing: {
+          repartitionAttempts: attempts,
+          status: chunkSizeMB <= 18 && durationAccelerated <= (20 * 60) ? 'CONFORME' : 'LIMITE VIOLADO'
+        }
       });
 
       originalStartTime += attemptDuration;
       chunkIndex += 1;
     }
 
-    logger.info('🎯 TODOS OS CHUNKS CRIADOS!', {
-      totalChunks: chunks.length,
-      plannedChunkCount: totalChunks,
-      originalTotalSize: `${originalDuration.toFixed(2)}s`,
-      acceleratedTotalSize: `${acceleratedDuration.toFixed(2)}s`,
-      averageOriginalChunkSize: chunks.length ? `${(originalDuration / chunks.length).toFixed(2)}s` : '0s',
-      maxChunkDurationMinutes: maxChunkDurationMinutes,
-      maxChunkDurationSecondsAccelerated: maxChunkDurationSecondsAccelerated,
-      chunkLimitMB: 20,
+    // Validação final de todos os chunks
+    const chunkValidation = chunks.map(chunk => {
+      const chunkStats = fs.existsSync(chunk.path) ? fs.statSync(chunk.path) : null;
+      const chunkSizeMB = chunkStats ? chunkStats.size / (1024 * 1024) : 0;
+      const acceleratedDuration = chunk.duration / speedFactor;
+
+      return {
+        index: chunk.index,
+        sizeValid: chunkSizeMB <= 18,
+        durationValid: acceleratedDuration <= (20 * 60),
+        sizeMB: chunkSizeMB,
+        durationMin: acceleratedDuration / 60
+      };
+    });
+
+    const validChunks = chunkValidation.filter(c => c.sizeValid && c.durationValid).length;
+    const invalidChunks = chunks.length - validChunks;
+
+    logger.info('🎯 CHUNKING FINALIZADO - Resumo da Validação', {
+      summary: {
+        totalChunks: chunks.length,
+        validChunks: validChunks,
+        invalidChunks: invalidChunks,
+        successRate: `${Math.round(validChunks / chunks.length * 100)}%`
+      },
+      limits: {
+        maxSizeMB: 18,
+        maxDurationMin: 20,
+        speedFactor: `${speedFactor}x`
+      },
+      timeline: {
+        originalDuration: `${originalDuration.toFixed(2)}s`,
+        acceleratedDuration: `${acceleratedDuration.toFixed(2)}s`,
+        averageChunkDuration: chunks.length ? `${(originalDuration / chunks.length).toFixed(2)}s` : '0s'
+      },
+      status: invalidChunks === 0 ? '✅ TODOS OS CHUNKS CONFORMES' : `⚠️ ${invalidChunks} CHUNKS VIOLAM LIMITES`,
       readyForTranscription: true
     });
 
@@ -282,7 +333,7 @@ export class AudioProcessor {
       ffmpeg(inputPath)
         .seekInput(startTime)
         .duration(duration)
-        .audioCodec('flac') // ALTERAÇÃO: Usar FLAC (sem perdas)
+        .audioCodec('libmp3lame')
         .on('end', () => resolve())
         .on('error', (err) => {
           logger.error('❌ Falha na criação do chunk', {

@@ -18,7 +18,7 @@ export class WhisperService {
     this.transcriptsDir = path.join(
       config.directories.temp,
       `job_${jobId}`,
-      `temp_transcripts_1.5x`
+      `temp_transcripts_2x`
     );
     this.ensureTranscriptsDirectory();
   }

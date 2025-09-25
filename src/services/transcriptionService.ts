@@ -31,7 +31,7 @@ export class TranscriptionService {
       retryAttempts: 0
     };
 
-    const effectiveSpeedFactor = speedFactor ?? config.audio.speedFactor ?? 1.5;
+    const effectiveSpeedFactor = speedFactor ?? config.audio.speedFactor ?? 2.0;
 
     jobLogger.info('🚀 INICIANDO JOB DE TRANSCRIÇÃO', {
       jobId,

@@ -14,7 +14,7 @@ const envSchema = Joi.object({
 
   // Audio Processing
   CHUNK_TIME: Joi.number().default(900),
-  SPEED_FACTOR: Joi.number().default(1.5),
+  SPEED_FACTOR: Joi.number().default(2.0),
   AUDIO_QUALITY: Joi.number().default(3),
   MAX_FILE_SIZE_MB: Joi.number().default(500),
   ALLOWED_AUDIO_FORMATS: Joi.string().default('mp3,wav,m4a,ogg,flac,aac'),

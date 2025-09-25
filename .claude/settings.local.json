@@ -10,7 +10,9 @@
       "Read(//d/code/freela/server-api/**)",
       "Bash(npm start)",
       "Bash(curl:*)",
-      "Bash(git rebase:*)"
+      "Bash(git rebase:*)",
+      "Bash(git stash:*)",
+      "Bash(npm run clean:*)"
     ],
     "deny": [],
     "ask": []

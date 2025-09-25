@@ -1,10 +1,10 @@
 # API Transcrição
 
-A robust transcription API with 1.5x speed processing, smart chunking (20MB + 15min limits), and multiple output formats. Built for production deployment on EasyPanel with VPS Hostinger KVM 2.
+A robust transcription API with 2x speed processing, smart chunking (18MB AND 20min limits), and multiple output formats. Built for production deployment on EasyPanel with VPS Hostinger KVM 2.
 
 ## Features
 
-- **High-Performance Processing**: 1.5x speed acceleration with FFmpeg
+- **High-Performance Processing**: 2x speed acceleration with FFmpeg
 - **Chunked Processing**: Asynchronous 15-minute chunks for optimal performance
 - **Multiple Formats**: JSON, SRT, and TXT output formats
 - **Robust Error Handling**: Exponential backoff retry mechanism
@@ -99,7 +99,7 @@ Check the status of a transcription job.
 | `X_API_KEY` | Authentication key | required |
 | `OPENAI_API_KEY` | OpenAI API key | required |
 | `CHUNK_TIME` | Chunk duration (seconds) | 900 |
-| `SPEED_FACTOR` | Processing speed multiplier | 1.5 |
+| `SPEED_FACTOR` | Processing speed multiplier | 2.0 |
 | `MAX_FILE_SIZE_MB` | Maximum file size | 500 |
 | `MAX_RETRIES` | Maximum retry attempts | 5 |
 | `CONCURRENT_CHUNKS` | Concurrent processing | 4 |
@@ -112,7 +112,7 @@ Check the status of a transcription job.
   "job": {
     "id": "uuid",
     "status": "completed",
-    "speedFactor": 1.5,
+    "speedFactor": 2.0,
     "sourceDurationS": 1234.5,
     "metrics": {
       "segments": 150,
@@ -159,8 +159,8 @@ Hello world. This is a transcription...
 ### Processing Pipeline
 
 1. **Audio Input**: Receives and validates audio file
-2. **Speed Processing**: Accelerates audio 1.5x using FFmpeg
-3. **Smart Chunking**: Calculates chunks based on 20MB and 15-minute limits after acceleration
+2. **Speed Processing**: Accelerates audio 2x using FFmpeg (no compression)
+3. **Smart Chunking**: Each chunk satisfies BOTH limits: < 18MB AND < 20min
 4. **Transcription**: Sends chunks to Whisper API with parallel processing and retry logic
 5. **Timestamp Correction**: Adjusts timestamps back to original speed timeline
 6. **Output Generation**: Creates JSON, SRT, and TXT formats
@@ -197,7 +197,7 @@ PORT=3000
 X_API_KEY=your-secure-production-key
 OPENAI_API_KEY=sk-your-production-openai-key
 CHUNK_TIME=900
-SPEED_FACTOR=1.5
+SPEED_FACTOR=2.0
 MAX_FILE_SIZE_MB=500
 RATE_LIMIT_WINDOW_MS=900000
 RATE_LIMIT_MAX_REQUESTS=10

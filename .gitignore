@@ -76,3 +76,17 @@ Thumbs.db
 *.ogg
 *.flac
 *.aac
+
+# TypeScript cache
+*.tsbuildinfo
+
+# Claude Code settings
+.claude/
+
+# Package manager files
+package-lock.json.bak
+yarn.lock.bak
+
+# Additional cache files
+.cache/
+*.cache

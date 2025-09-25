@@ -8,7 +8,7 @@ export class OutputFormatter {
   private outputDir: string;
   private speedFactor: number;
 
-  constructor(jobId: string, speedFactor: number = 1.5) {
+  constructor(jobId: string, speedFactor: number = 2.0) {
     this.outputDir = path.join(config.directories.output, jobId);
     this.speedFactor = speedFactor;
     this.ensureOutputDirectory();
