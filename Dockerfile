@@ -1,4 +1,19 @@
-FROM node:18-alpine
+# Build stage
+FROM node:18-alpine AS builder
+
+WORKDIR /app
+
+COPY package*.json ./
+COPY tsconfig.json ./
+
+RUN npm ci
+
+COPY src ./src
+
+RUN npm run build
+
+# Production stage
+FROM node:18-alpine AS production
 
 RUN apk add --no-cache \
     ffmpeg \
@@ -11,7 +26,7 @@ COPY package*.json ./
 RUN npm ci --only=production && \
     npm cache clean --force
 
-COPY dist ./dist
+COPY --from=builder /app/dist ./dist
 
 RUN addgroup -g 1001 -S nodejs && \
     adduser -S nodejs -u 1001
