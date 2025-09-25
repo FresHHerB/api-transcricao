@@ -1,7 +1,13 @@
 {
   "permissions": {
     "allow": [
-      "Bash(git add:*)"
+      "Bash(git add:*)",
+      "Bash(git push:*)",
+      "Bash(npm run build:*)",
+      "Bash(git commit:*)",
+      "Bash(docker build:*)",
+      "Read(//d/code/freela/autodark/**)",
+      "Read(//d/code/freela/server-api/**)"
     ],
     "deny": [],
     "ask": []

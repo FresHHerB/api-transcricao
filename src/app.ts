@@ -19,11 +19,15 @@ app.use(helmet({
 
 app.use(compression());
 
+// CORS configurável via environment
+const allowedOrigins = process.env.CORS_ALLOW_ORIGINS || '*';
+const corsOrigins = allowedOrigins === '*' ? true : allowedOrigins.split(',').map(origin => origin.trim());
+
 app.use(cors({
-  origin: config.nodeEnv === 'development' ? '*' : false,
-  methods: ['GET', 'POST'],
-  allowedHeaders: ['Content-Type', 'Authorization'],
-  credentials: false
+  origin: corsOrigins,
+  methods: ['GET', 'POST', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
+  credentials: true
 }));
 
 const limiter = rateLimit({
