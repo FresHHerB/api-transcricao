@@ -31,10 +31,12 @@ export class TranscriptionService {
       retryAttempts: 0
     };
 
+    const effectiveSpeedFactor = speedFactor ?? config.audio.speedFactor ?? 2;
+
     jobLogger.info('🚀 INICIANDO JOB DE TRANSCRIÇÃO', {
       jobId,
       audioPath,
-      speedFactor: speedFactor || config.audio.speedFactor,
+      speedFactor: effectiveSpeedFactor,
       format,
       timestamp: new Date().toISOString(),
       phase: 'INITIALIZATION'
@@ -47,7 +49,7 @@ export class TranscriptionService {
       maxRetries: config.transcription.maxRetries
     });
 
-    const audioProcessor = new AudioProcessor(jobId);
+    const audioProcessor = new AudioProcessor(jobId, effectiveSpeedFactor);
     const whisperService = new WhisperService(jobId);
     const outputFormatter = new OutputFormatter(jobId);
 
@@ -55,36 +57,62 @@ export class TranscriptionService {
       jobLogger.info('🎵 FASE 1: Processando áudio', {
         phase: 'AUDIO_PROCESSING',
         inputPath: audioPath,
-        speedFactor: speedFactor || config.audio.speedFactor
+        speedFactor: effectiveSpeedFactor
       });
 
-      const { processedPath, duration, originalDuration } = await audioProcessor.processAudio(audioPath);
+      const { processedPath, duration, originalDuration, originalSizeBytes } = await audioProcessor.processAudio(audioPath);
 
       jobLogger.info('✅ ÁUDIO PROCESSADO COM SUCESSO', {
         phase: 'AUDIO_PROCESSING_COMPLETE',
         acceleratedDuration: duration,
         originalDuration,
         processedPath,
-        speedFactor: speedFactor || config.audio.speedFactor,
-        compressionRatio: '2x speed + OGG compression'
+        speedFactor: effectiveSpeedFactor,
+        processingPipeline: '2x speed + lossless WAV'
       });
 
       jobLogger.info('✂️ FASE 2: Criando chunks', {
         phase: 'CHUNKING',
-        originalDuration: originalDuration,
+        originalDuration,
         acceleratedDuration: duration,
-        chunkSize: config.audio.chunkTime,
-        estimatedChunks: Math.ceil(originalDuration / config.audio.chunkTime)
+        durationLimitSeconds: config.audio.chunkTime,
+        sizeLimitMB: 20,
+        originalSizeMB: (originalSizeBytes / (1024 * 1024)).toFixed(2),
+        speedFactor: effectiveSpeedFactor
       });
 
-      const chunks = await audioProcessor.createChunks(processedPath, duration, originalDuration);
+      const chunks = await audioProcessor.createChunks(processedPath, duration, originalDuration, originalSizeBytes);
       metrics.totalChunks = chunks.length;
+
+      const chunkSizeMBStats = chunks.map(chunk => {
+        try {
+          const stats = fs.statSync(chunk.path);
+          return stats.size / (1024 * 1024);
+        } catch (error) {
+          logger.warn('⚠️ Não foi possível ler tamanho do chunk', {
+            chunkPath: chunk.path,
+            error: error instanceof Error ? error.message : 'Unknown error'
+          });
+          return 0;
+        }
+      });
+
+      const maxChunkDuration = chunks.reduce((max, chunk) => Math.max(max, chunk.duration), 0);
+      const maxChunkSizeMB = chunkSizeMBStats.length > 0 ? Math.max(...chunkSizeMBStats) : 0;
+      const averageChunkSizeMB = chunkSizeMBStats.length > 0
+        ? chunkSizeMBStats.reduce((sum, size) => sum + size, 0) / chunkSizeMBStats.length
+        : 0;
 
       jobLogger.info('📦 CHUNKS CRIADOS COM SUCESSO', {
         phase: 'CHUNKING_COMPLETE',
         totalChunks: chunks.length,
-        averageOriginalChunkDuration: originalDuration / chunks.length,
-        chunksInfo: chunks.map((c, i) => ({
+        averageOriginalChunkDuration: chunks.length ? originalDuration / chunks.length : 0,
+        maxChunkDuration,
+        maxChunkSizeMB: maxChunkSizeMB.toFixed(2),
+        averageChunkSizeMB: averageChunkSizeMB.toFixed(2),
+        durationLimitSeconds: config.audio.chunkTime,
+        sizeLimitMB: 20,
+        chunksInfo: chunks.map((c) => ({
           index: c.index,
           originalDuration: c.duration,
           originalStartTime: c.startTime,
@@ -115,13 +143,13 @@ export class TranscriptionService {
 
       jobLogger.info('⏰ FASE 4: Corrigindo timestamps', {
         phase: 'TIMESTAMP_CORRECTION',
-        speedFactor: speedFactor || config.audio.speedFactor,
+        speedFactor: effectiveSpeedFactor,
         totalChunks: chunkResults.length
       });
 
       const { segments, warnings } = this.processChunkResults(
         chunkResults,
-        speedFactor || config.audio.speedFactor
+        effectiveSpeedFactor
       );
 
       jobLogger.info('✅ TIMESTAMPS CORRIGIDOS', {
@@ -135,8 +163,8 @@ export class TranscriptionService {
       const job: TranscriptionJob = {
         id: jobId,
         status: metrics.failedChunks > 0 ? 'completed_with_warnings' : 'completed',
-        speedFactor: speedFactor || config.audio.speedFactor,
-        chunkLengthS: config.audio.chunkTime,
+        speedFactor: effectiveSpeedFactor,
+        chunkLengthS: maxChunkDuration || Math.min(config.audio.chunkTime, originalDuration),
         sourceDurationS: originalDuration, // CORREÇÃO: Usar duração original do arquivo fonte
         processedChunks: metrics.chunksProcessed,
         failedChunks: chunkResults
@@ -288,6 +316,27 @@ export class TranscriptionService {
           };
 
           if (correctedSegment.text) {
+            // DETECTOR DE REPETIÇÕES: Verificar se o texto é idêntico aos últimos 3 segmentos
+            const isConsecutiveDuplicate = segments.length >= 1 &&
+              segments.slice(-3).some(lastSeg => lastSeg.text === correctedSegment.text);
+
+            if (isConsecutiveDuplicate) {
+              logger.warn('🚨 REPETIÇÃO CONSECUTIVA DETECTADA - Pulando segmento duplicado', {
+                chunkIndex: result.chunkIndex,
+                duplicatedText: correctedSegment.text.substring(0, 50) + '...',
+                originalTimestamp: `${correctedSegment.start.toFixed(2)}s-${correctedSegment.end.toFixed(2)}s`,
+                previousSegments: segments.slice(-2).map(s => ({
+                  text: s.text.substring(0, 30) + '...',
+                  timestamp: `${s.start.toFixed(2)}s-${s.end.toFixed(2)}s`
+                })),
+                action: 'Segment filtrado - possível alucinação do Whisper'
+              });
+
+              // Continuar processamento, mas pular este segmento duplicado
+              segmentIndex--; // Reverter o incremento do índice
+              continue;
+            }
+
             segments.push(correctedSegment);
             lastEndTime = Math.max(lastEndTime, correctedSegment.end);
           }
