@@ -26,7 +26,7 @@ const gracefulShutdown = (signal: string): void => {
 const server = app.listen(config.port, () => {
   logger.info(`🚀 API Transcrição iniciada - Port:${config.port} Env:${config.nodeEnv} PID:${process.pid}`);
 
-  logger.info(`⚙️ Audio: ${config.audio.maxFileSizeMB}MB max, ${config.audio.speedFactor}x speed, Level ${config.audio.quality} quality`);
+  logger.info(`⚙️ Audio: ${config.audio.maxFileSizeMB}MB max, ${config.audio.speedFactor}x speed - apenas aceleração`);
 
   logger.info(`⚙️ Whisper: Model ${config.openai.model}, ${config.transcription.concurrentChunks} chunks, ${config.transcription.maxRetries} retries`);
 
