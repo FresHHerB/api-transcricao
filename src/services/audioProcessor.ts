@@ -17,10 +17,12 @@ interface ValidationResult {
 export class AudioProcessor {
   private tempDir: string;
   private chunkDir: string;
+  private readonly speedFactor: number;
 
-  constructor(jobId: string) {
+  constructor(jobId: string, speedFactor: number) {
+    this.speedFactor = speedFactor;
     this.tempDir = path.join(config.directories.temp, `job_${jobId}`);
-    this.chunkDir = path.join(this.tempDir, `temp_audio_chunks_${config.audio.speedFactor}x`);
+    this.chunkDir = path.join(this.tempDir, `temp_audio_chunks_${this.speedFactor}x`);
 
     this.ensureDirectories();
   }
@@ -34,28 +36,31 @@ export class AudioProcessor {
     }
   }
 
-  async processAudio(inputPath: string): Promise<{ processedPath: string; duration: number; originalDuration: number }> {
-    const processedPath = path.join(this.chunkDir, 'processed_audio.ogg');
+  async processAudio(inputPath: string): Promise<{ processedPath: string; duration: number; originalDuration: number; originalSizeBytes: number }> {
+    const processedPath = path.join(this.chunkDir, 'processed_audio.wav');
+    const sourceStats = fs.statSync(inputPath);
+    const originalSizeBytes = sourceStats.size;
+
 
     logger.info('🎧 Iniciando processamento de áudio', {
       inputPath: path.basename(inputPath),
       processedPath: path.basename(processedPath),
-      speedFactor: config.audio.speedFactor,
+      speedFactor: this.speedFactor,
       quality: config.audio.quality,
-      codec: 'libvorbis (OGG)'
+      codec: 'pcm_s16le (WAV)'
     });
 
     return new Promise((resolve, reject) => {
       let originalDuration = 0;
 
       ffmpeg(inputPath)
-        .audioFilters(`atempo=${config.audio.speedFactor}`)
-        .audioCodec('libvorbis')
-        .audioQuality(config.audio.quality)
+        .audioFilters(`atempo=${this.speedFactor}`)
+        .audioCodec('pcm_s16le')
+        .format('wav')
         .on('codecData', (data) => {
           // CORREÇÃO: data.duration é a duração do arquivo de ENTRADA original
           originalDuration = this.parseDuration(data.duration);
-          const expectedAcceleratedDuration = originalDuration / config.audio.speedFactor;
+          const expectedAcceleratedDuration = originalDuration / this.speedFactor;
 
           // Validação: detectar possível conteúdo duplicado
           const suspiciouslyLong = originalDuration > 7200; // > 2 horas
@@ -66,7 +71,7 @@ export class AudioProcessor {
             estimatedAcceleratedDuration: `${expectedAcceleratedDuration.toFixed(2)}s`,
             format: data.format,
             codec: data.audio_details || 'N/A',
-            speedFactor: config.audio.speedFactor,
+            speedFactor: this.speedFactor,
             ...(suspiciouslyLong && { warning: '⚠️ Áudio muito longo - possível duplicação' }),
             ...(possibleDuplication && { alert: '🚨 Possível conteúdo duplicado detectado' })
           });
@@ -87,14 +92,14 @@ export class AudioProcessor {
             logger.info('⚡ Progresso do processamento', {
               percent: `${progress.percent?.toFixed(1)}%`,
               currentTime: progress.timemark,
-              phase: 'Audio acceleration + compression'
+              phase: 'Audio acceleration (lossless)'
             });
           }
         })
         .on('end', async () => {
           // VALIDAÇÃO CRÍTICA: Verificar se o arquivo processado não está corrompido
           try {
-            const validationResult = await this.validateProcessedAudio(processedPath, originalDuration, config.audio.speedFactor);
+            const validationResult = await this.validateProcessedAudio(processedPath, originalDuration, this.speedFactor);
 
             if (!validationResult.isValid) {
               reject(new Error(`Audio processing validation failed: ${validationResult.error}`));
@@ -107,7 +112,7 @@ export class AudioProcessor {
               originalDuration: `${originalDuration.toFixed(2)}s`,
               expectedAcceleratedDuration: `${validationResult.expectedDuration.toFixed(2)}s`,
               durationAccuracy: `${validationResult.accuracyPercent.toFixed(1)}%`,
-              compression: `${config.audio.speedFactor}x faster`,
+              processingPipeline: 'Lossless acceleration -> chunked MP3',
               validation: '✅ PASSED',
               nextPhase: 'Chunking'
             });
@@ -115,7 +120,8 @@ export class AudioProcessor {
             resolve({
               processedPath,
               duration: validationResult.actualDuration, // Duração real do arquivo processado
-              originalDuration: originalDuration // Duração original correta
+              originalDuration: originalDuration, // Duração original correta
+              originalSizeBytes
             });
           } catch (validationError) {
             const errorMsg = validationError instanceof Error ? validationError.message : 'Unknown validation error';
@@ -139,57 +145,120 @@ export class AudioProcessor {
     });
   }
 
-  async createChunks(processedPath: string, acceleratedDuration: number, originalDuration: number): Promise<AudioChunk[]> {
+  async createChunks(processedPath: string, acceleratedDuration: number, originalDuration: number, originalSizeBytes: number): Promise<AudioChunk[]> {
     const chunks: AudioChunk[] = [];
-    const chunkDuration = config.audio.chunkTime;
-    const totalChunks = Math.ceil(originalDuration / chunkDuration);
+    const maxChunkBytes = 20 * 1024 * 1024;
+    const durationLimitSeconds = config.audio.chunkTime;
+    const speedFactor = this.speedFactor;
+
+    const safeOriginalDuration = originalDuration > 0 ? originalDuration : 1;
+    const bytesPerSecond = originalSizeBytes > 0 ? originalSizeBytes / safeOriginalDuration : 0;
+
+    const minChunksByDuration = Math.max(1, Math.ceil(safeOriginalDuration / durationLimitSeconds));
+    const minChunksBySize = bytesPerSecond > 0 ? Math.max(1, Math.ceil(originalSizeBytes / maxChunkBytes)) : 1;
+    const plannedChunks = Math.max(minChunksByDuration, minChunksBySize);
+    const rawChunkDuration = safeOriginalDuration / plannedChunks;
+    const chunkDuration = Math.min(durationLimitSeconds, Math.max(1, rawChunkDuration));
+    const totalChunks = Math.max(1, Math.ceil(safeOriginalDuration / chunkDuration));
 
     logger.info('🔪 Iniciando divisão em chunks', {
       originalDuration: `${originalDuration.toFixed(2)}s`,
       acceleratedDuration: `${acceleratedDuration.toFixed(2)}s`,
-      chunkDuration: `${chunkDuration}s`,
-      totalChunks,
-      estimatedChunkSizes: `~${chunkDuration}s each (original timeline)`,
-      processingStrategy: 'Chunks baseados na timeline original, arquivo físico acelerado'
+      durationLimitSeconds,
+      sizeLimitMB: 20,
+      plannedChunks: totalChunks,
+      estimatedChunkDuration: `${chunkDuration.toFixed(2)}s`,
+      bytesPerSecond: bytesPerSecond ? `${bytesPerSecond.toFixed(0)} B/s` : 'unknown',
+      speedFactor
     });
 
-    for (let i = 0; i < totalChunks; i++) {
-      // CORREÇÃO: startTime na timeline ORIGINAL
-      const originalStartTime = i * chunkDuration;
-      const originalChunkDuration = Math.min(chunkDuration, originalDuration - originalStartTime);
+    let chunkIndex = 0;
+    let originalStartTime = 0;
 
-      // Converter para coordenadas do arquivo acelerado para o FFmpeg
-      const acceleratedStartTime = originalStartTime / config.audio.speedFactor;
-      const acceleratedChunkDuration = originalChunkDuration / config.audio.speedFactor;
+    while (originalStartTime < originalDuration) {
+      const remainingDuration = originalDuration - originalStartTime;
+      if (remainingDuration <= 0) {
+        break;
+      }
 
-      const chunkPath = path.join(this.chunkDir, `chunk_${String(i + 1).padStart(3, '0')}.mp3`);
+      let attemptDuration = Math.min(chunkDuration, remainingDuration);
+      const acceleratedStartTime = originalStartTime / speedFactor;
+      let acceleratedChunkDuration = Math.max(attemptDuration / speedFactor, 0.001);
+      // ALTERAÇÃO: Mudar a extensão do arquivo para .flac
+      const chunkPath = path.join(this.chunkDir, `chunk_${String(chunkIndex + 1).padStart(3, '0')}.flac`);
 
-      await this.createChunk(processedPath, chunkPath, acceleratedStartTime, acceleratedChunkDuration);
+      let chunkSizeBytes = 0;
+      let attempts = 0;
+
+      while (true) {
+        await this.createChunk(processedPath, chunkPath, acceleratedStartTime, acceleratedChunkDuration);
+
+        chunkSizeBytes = fs.existsSync(chunkPath) ? fs.statSync(chunkPath).size : 0;
+        if (chunkSizeBytes <= maxChunkBytes || attemptDuration <= 1) {
+          break;
+        }
+
+        if (fs.existsSync(chunkPath)) {
+          fs.unlinkSync(chunkPath);
+        }
+        const previousDuration = attemptDuration;
+        attemptDuration = Math.max(previousDuration / 2, 1);
+        acceleratedChunkDuration = Math.max(attemptDuration / speedFactor, 0.001);
+        attempts += 1;
+
+        logger.warn('⚠️ Chunk acima do limite de 20MB - reparticionando', {
+          chunkNumber: chunkIndex + 1,
+          previousDuration: `${previousDuration.toFixed(2)}s`,
+          newDuration: `${attemptDuration.toFixed(2)}s`,
+          chunkSizeMB: (chunkSizeBytes / (1024 * 1024)).toFixed(2),
+          limitMB: 20,
+          attempts
+        });
+      }
+
+      const chunkSizeMB = chunkSizeBytes / (1024 * 1024);
+
+      if (chunkSizeBytes > maxChunkBytes) {
+        logger.error('🚨 Chunk permaneceu acima do limite após tentativas', {
+          chunkNumber: chunkIndex + 1,
+          chunkSizeMB: chunkSizeMB.toFixed(2),
+          limitMB: 20,
+          duration: `${attemptDuration.toFixed(2)}s`
+        });
+      }
 
       chunks.push({
-        index: i + 1,
+        index: chunkIndex + 1,
         path: chunkPath,
-        duration: originalChunkDuration, // Duração na timeline original
-        startTime: originalStartTime    // Tempo de início na timeline original
+        duration: attemptDuration,
+        startTime: originalStartTime
       });
 
       logger.info('📦 Chunk criado', {
-        chunkNumber: `${i + 1}/${totalChunks}`,
+        chunkNumber: chunkIndex + 1,
+        plannedChunkCount: totalChunks,
         chunkPath: path.basename(chunkPath),
-        originalRange: `${originalStartTime.toFixed(2)}s-${(originalStartTime + originalChunkDuration).toFixed(2)}s`,
+        originalRange: `${originalStartTime.toFixed(2)}s-${(originalStartTime + attemptDuration).toFixed(2)}s`,
         acceleratedRange: `${acceleratedStartTime.toFixed(2)}s-${(acceleratedStartTime + acceleratedChunkDuration).toFixed(2)}s`,
-        progress: `${(((i + 1) / totalChunks) * 100).toFixed(1)}%`
+        chunkSizeMB: chunkSizeMB.toFixed(2),
+        repartitionAttempts: attempts
       });
+
+      originalStartTime += attemptDuration;
+      chunkIndex += 1;
     }
 
     logger.info('🎯 TODOS OS CHUNKS CRIADOS!', {
       totalChunks: chunks.length,
+      plannedChunkCount: totalChunks,
       originalTotalSize: `${originalDuration.toFixed(2)}s`,
       acceleratedTotalSize: `${acceleratedDuration.toFixed(2)}s`,
-      averageOriginalChunkSize: `${(originalDuration / chunks.length).toFixed(2)}s`,
-      nextPhase: 'Enviando para OpenAI Whisper API',
+      averageOriginalChunkSize: chunks.length ? `${(originalDuration / chunks.length).toFixed(2)}s` : '0s',
+      chunkLimitSeconds: durationLimitSeconds,
+      chunkLimitMB: 20,
       readyForTranscription: true
     });
+
     return chunks;
   }
 
@@ -198,8 +267,7 @@ export class AudioProcessor {
       ffmpeg(inputPath)
         .seekInput(startTime)
         .duration(duration)
-        .audioCodec('libmp3lame')
-        .audioQuality(2)
+        .audioCodec('flac') // ALTERAÇÃO: Usar FLAC (sem perdas)
         .on('end', () => resolve())
         .on('error', (err) => {
           logger.error('❌ Falha na criação do chunk', {
