@@ -179,10 +179,10 @@ export class TranscriptionService {
         transcript: {
           segments,
           fullText,
-          formats: {
-            srtPath,
-            txtPath
-          }
+          formats: srtPath || txtPath ? {
+            ...(srtPath && { srtPath }),
+            ...(txtPath && { txtPath })
+          } : undefined
         },
         warnings
       };

@@ -66,7 +66,7 @@ export interface TranscriptionResult {
     formats?: {
       srtPath?: string;
       txtPath?: string;
-    };
+    } | undefined;
   };
   warnings?: string[];
 }

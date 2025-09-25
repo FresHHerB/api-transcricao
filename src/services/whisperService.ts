@@ -161,11 +161,12 @@ export class WhisperService {
           randomize: true,
           onRetry: (error, attempt) => {
             const delay = Math.min(config.transcription.initialRetryDelay * Math.pow(2, attempt - 1), 30000);
+            const errorMessage = error instanceof Error ? error.message : String(error);
             logger.warn('🔄 Tentativa de retry', {
               chunkIndex: chunk.index,
               attempt: `${attempt}/${config.transcription.maxRetries}`,
               nextRetryIn: `${delay}ms`,
-              error: error.message,
+              error: errorMessage,
               strategy: 'Exponential backoff'
             });
           }
@@ -178,8 +179,12 @@ export class WhisperService {
         retries: retryCount,
         elapsedTimeMs: elapsedTime,
         efficiency: retryCount === 0 ? 'Primeira tentativa' : `Sucesso após ${retryCount} retries`,
-        segments: result.segments?.length || 0
+        segments: result?.segments?.length || 0
       });
+
+      if (!result) {
+        throw new Error('Result is undefined after retry');
+      }
 
       return result;
     } catch (error) {
