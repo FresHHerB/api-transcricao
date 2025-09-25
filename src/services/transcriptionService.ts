@@ -76,7 +76,7 @@ export class TranscriptionService {
         originalDuration,
         acceleratedDuration: duration,
         durationLimitSeconds: config.audio.chunkTime,
-        sizeLimitMB: 20,
+        sizeLimitMB: 18,
         originalSizeMB: (originalSizeBytes / (1024 * 1024)).toFixed(2),
         speedFactor: effectiveSpeedFactor
       });
@@ -111,7 +111,7 @@ export class TranscriptionService {
         maxChunkSizeMB: maxChunkSizeMB.toFixed(2),
         averageChunkSizeMB: averageChunkSizeMB.toFixed(2),
         durationLimitSeconds: config.audio.chunkTime,
-        sizeLimitMB: 20,
+        sizeLimitMB: 18,
         chunksInfo: chunks.map((c) => ({
           index: c.index,
           originalDuration: c.duration,
@@ -127,24 +127,84 @@ export class TranscriptionService {
         model: config.openai.model
       });
 
-      const chunkResults = await whisperService.transcribeChunks(chunks);
-      metrics.chunksProcessed = chunkResults.filter(r => r.success).length;
-      metrics.failedChunks = chunkResults.filter(r => !r.success).length;
-      metrics.retryAttempts = chunkResults.reduce((sum, r) => sum + r.retries, 0);
+      let chunkResults: any;
+      let transcriptionAttempt = 1;
+      const maxTranscriptionRetries = 3;
 
-      jobLogger.info('🎯 TRANSCRIÇÃO CONCLUÍDA', {
-        phase: 'TRANSCRIPTION_COMPLETE',
-        successful: metrics.chunksProcessed,
-        failed: metrics.failedChunks,
-        totalRetries: metrics.retryAttempts,
-        successRate: `${((metrics.chunksProcessed / chunks.length) * 100).toFixed(1)}%`,
-        averageRetriesPerChunk: (metrics.retryAttempts / chunks.length).toFixed(1)
-      });
+      while (transcriptionAttempt <= maxTranscriptionRetries) {
+        jobLogger.info(`🎥 FASE 3.${transcriptionAttempt}: Transcrição (Tentativa ${transcriptionAttempt}/${maxTranscriptionRetries})`, {
+          phase: `TRANSCRIPTION_ATTEMPT_${transcriptionAttempt}`,
+          totalChunks: chunks.length,
+          attempt: transcriptionAttempt,
+          strategy: 'Garantir 100% de sucesso'
+        });
+
+        try {
+          chunkResults = await whisperService.transcribeChunks(chunks);
+
+          // Validação rigorosa - DEVE ser 100% sucesso
+          const successfulChunks = chunkResults.filter((r: ChunkResult) => r.success);
+          const failedChunks = chunkResults.filter((r: ChunkResult) => !r.success);
+
+          if (failedChunks.length === 0) {
+            jobLogger.info('✅ TRANSCRIÇÃO 100% CONCLUÍDA!', {
+              phase: 'TRANSCRIPTION_SUCCESS',
+              totalChunks: chunks.length,
+              successful: successfulChunks.length,
+              failed: 0,
+              attempts: transcriptionAttempt,
+              status: 'SUCESSO TOTAL GARANTIDO'
+            });
+            break; // Sair do loop, sucesso!
+          } else {
+            throw new Error(`${failedChunks.length} chunks falharam na transcrição`);
+          }
+        } catch (error) {
+          const errorMsg = error instanceof Error ? error.message : 'Unknown error';
+
+          jobLogger.error(`❌ FALHA NA TRANSCRIÇÃO - Tentativa ${transcriptionAttempt}`, {
+            phase: `TRANSCRIPTION_FAILED_${transcriptionAttempt}`,
+            error: errorMsg,
+            attempt: transcriptionAttempt,
+            maxAttempts: maxTranscriptionRetries,
+            willRetry: transcriptionAttempt < maxTranscriptionRetries
+          });
+
+          if (transcriptionAttempt >= maxTranscriptionRetries) {
+            throw new Error(`FALHA DEFINITIVA: Transcrição falhou após ${maxTranscriptionRetries} tentativas: ${errorMsg}`);
+          }
+
+          transcriptionAttempt++;
+
+          // Delay progressivo entre tentativas
+          const delay = 3000 * transcriptionAttempt;
+          jobLogger.info(`🔄 Aguardando ${delay}ms antes da próxima tentativa...`);
+          await new Promise(resolve => setTimeout(resolve, delay));
+        }
+      }
+
+      // Atualizar métricas apenas após sucesso total
+      metrics.chunksProcessed = chunkResults.filter((r: ChunkResult) => r.success).length;
+      metrics.failedChunks = 0; // Garantimos que seja 0
+      metrics.retryAttempts = chunkResults.reduce((sum: number, r: ChunkResult) => sum + r.retries, 0);
 
       jobLogger.info('⏰ FASE 4: Corrigindo timestamps', {
         phase: 'TIMESTAMP_CORRECTION',
         speedFactor: effectiveSpeedFactor,
         totalChunks: chunkResults.length
+      });
+
+      // Validação adicional antes do processamento de timestamps
+      const totalSegments = chunkResults.reduce((sum: number, r: ChunkResult) => sum + (r.segments?.length || 0), 0);
+      if (totalSegments === 0) {
+        throw new Error('FALHA CRÍTICA: Nenhum segmento foi transcrito com sucesso');
+      }
+
+      jobLogger.info('✅ INICIANDO PROCESSAMENTO DE TIMESTAMPS', {
+        phase: 'TIMESTAMP_PROCESSING_START',
+        totalChunkResults: chunkResults.length,
+        totalSegments: totalSegments,
+        allChunksSuccessful: true
       });
 
       const { segments, warnings } = this.processChunkResults(
@@ -160,16 +220,19 @@ export class TranscriptionService {
       });
 
       const fullText = segments.map(s => s.text).join(' ');
+      // Validação final rigorosa
+      if (segments.length === 0) {
+        throw new Error('FALHA CRÍTICA: Nenhum segmento final foi gerado');
+      }
+
       const job: TranscriptionJob = {
         id: jobId,
-        status: metrics.failedChunks > 0 ? 'completed_with_warnings' : 'completed',
+        status: 'completed', // Sempre 'completed' pois garantimos 100% de sucesso
         speedFactor: effectiveSpeedFactor,
         chunkLengthS: maxChunkDuration || Math.min(config.audio.chunkTime, originalDuration),
         sourceDurationS: originalDuration, // CORREÇÃO: Usar duração original do arquivo fonte
         processedChunks: metrics.chunksProcessed,
-        failedChunks: chunkResults
-          .filter(r => !r.success)
-          .map(r => path.basename(r.chunkPath)),
+        failedChunks: [], // Garantido vazio pois temos 100% sucesso
         metrics: {
           segments: segments.length,
           characters: fullText.length,
@@ -231,13 +294,36 @@ export class TranscriptionService {
         efficiency: `${((metrics.chunksProcessed / metrics.totalChunks) * 100).toFixed(1)}% success`
       };
 
-      jobLogger.info('🎉 JOB CONCLUÍDO COM SUCESSO! 🎉', {
-        phase: 'JOB_COMPLETE',
+      // Validação final absoluta antes de marcar como concluído
+      const finalValidation = {
+        allChunksProcessed: chunkResults.length === chunks.length,
+        allChunksSuccessful: chunkResults.every((r: ChunkResult) => r.success),
+        segmentsGenerated: segments.length > 0,
+        textGenerated: fullText.length > 0,
+        jobStatus: job.status === 'completed'
+      };
+
+      const validationPassed = Object.values(finalValidation).every(v => v === true);
+
+      if (!validationPassed) {
+        throw new Error(`VALIDAÇÃO FINAL FALHOU: ${JSON.stringify(finalValidation)}`);
+      }
+
+      jobLogger.info('🎉 ✅ JOB 100% CONCLUÍDO COM SUCESSO TOTAL! 🎉', {
+        phase: 'JOB_COMPLETE_VALIDATED',
         jobId,
         status: job.status,
+        finalValidation: finalValidation,
         finalStats: processingStats,
+        guarantees: {
+          chunksProcessed: '100%',
+          transcriptionSuccess: '100%',
+          segmentsGenerated: segments.length,
+          charactersGenerated: fullText.length
+        },
         warnings: warnings.length > 0 ? warnings : 'Nenhum aviso',
-        timestamp: new Date().toISOString()
+        timestamp: new Date().toISOString(),
+        certification: '✅ SUCESSO TOTAL CERTIFICADO'
       });
 
       logger.info('📊 Resumo da transcrição', {
@@ -385,7 +471,7 @@ export class TranscriptionService {
     const MAX_ACCEPTABLE_GAP = 60; // 60 segundos de tolerância
 
     // CALCULAR MÉTRICAS DE QUALIDADE LOCALMENTE
-    const failedChunks = sortedResults.filter(r => !r.success).length;
+    const failedChunks = sortedResults.filter((r: ChunkResult) => !r.success).length;
     const totalChunks = sortedResults.length;
     const failureRate = totalChunks > 0 ? (failedChunks / totalChunks) : 0;
 

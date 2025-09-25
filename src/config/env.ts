@@ -18,6 +18,12 @@ const envSchema = Joi.object({
   MAX_FILE_SIZE_MB: Joi.number().default(500),
   ALLOWED_AUDIO_FORMATS: Joi.string().default('mp3,wav,m4a,ogg,flac,aac'),
 
+  // Smart Chunk Cutting (Silence Detection)
+  SILENCE_THRESHOLD: Joi.number().default(-40), // dB
+  SILENCE_DURATION: Joi.number().default(0.5), // seconds
+  SILENCE_WINDOW: Joi.number().default(5), // seconds
+  MIN_CHUNK_DURATION: Joi.number().default(30), // seconds
+
   // Directories
   TEMP_DIR: Joi.string().default('./temp'),
   OUTPUT_DIR: Joi.string().default('./output'),
@@ -67,7 +73,13 @@ export const config = {
     chunkTime: envVars.CHUNK_TIME,
     speedFactor: envVars.SPEED_FACTOR,
     maxFileSizeMB: envVars.MAX_FILE_SIZE_MB,
-    allowedFormats: envVars.ALLOWED_AUDIO_FORMATS.split(',').map((f: string) => f.trim())
+    allowedFormats: envVars.ALLOWED_AUDIO_FORMATS.split(',').map((f: string) => f.trim()),
+
+    // Smart Chunk Cutting
+    silenceThreshold: envVars.SILENCE_THRESHOLD,
+    silenceDuration: envVars.SILENCE_DURATION,
+    silenceWindow: envVars.SILENCE_WINDOW,
+    minChunkDuration: envVars.MIN_CHUNK_DURATION
   },
 
   // Directories

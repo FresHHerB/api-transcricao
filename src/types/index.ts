@@ -88,3 +88,22 @@ export interface TranscribeRequest {
   speed?: number;
   format?: OutputFormat;
 }
+
+export interface SilenceSegment {
+  start: number;
+  end: number;
+  duration: number;
+}
+
+export interface SmartChunkPlan {
+  index: number;
+  targetStart: number;
+  targetEnd: number;
+  actualStart: number;
+  actualEnd: number;
+  duration: number;
+  usedSilence: boolean;
+  silenceStart?: number;
+  silenceEnd?: number;
+  estimatedSizeMB: number;
+}

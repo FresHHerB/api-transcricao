@@ -3,7 +3,7 @@ import path from 'path';
 import fs from 'fs';
 import { config } from '../config/env';
 import { logger } from '../utils/logger';
-import { AudioChunk } from '../types';
+import { AudioChunk, SilenceSegment, SmartChunkPlan } from '../types';
 import { v4 as uuidv4 } from 'uuid';
 
 interface ValidationResult {
@@ -145,32 +145,108 @@ export class AudioProcessor {
   }
 
   async createChunks(processedPath: string, acceleratedDuration: number, originalDuration: number, originalSizeBytes: number): Promise<AudioChunk[]> {
+    // Primeiro, detectar silêncios no áudio processado
+    logger.info('🔇 FASE 2.1: Detectando silêncios para cortes inteligentes', {
+      processedPath: path.basename(processedPath),
+      silenceThreshold: `${config.audio.silenceThreshold}dB`,
+      silenceDuration: `${config.audio.silenceDuration}s`,
+      strategy: 'Cortar apenas em pontos de silêncio natural'
+    });
+
+    const silenceSegments = await this.detectSilence(processedPath);
+
+    logger.info('🎵 Silêncios detectados para cortes inteligentes', {
+      totalSilences: silenceSegments.length,
+      totalSilenceDuration: `${silenceSegments.reduce((sum, s) => sum + s.duration, 0).toFixed(2)}s`,
+      avgSilenceDuration: silenceSegments.length > 0 ? `${(silenceSegments.reduce((sum, s) => sum + s.duration, 0) / silenceSegments.length).toFixed(2)}s` : '0s',
+      silenceDistribution: this.analyzeSilenceDistribution(silenceSegments, originalDuration)
+    });
+
+    return this.createSmartChunks(processedPath, acceleratedDuration, originalDuration, originalSizeBytes, silenceSegments);
+  }
+
+  private async detectSilence(audioPath: string): Promise<SilenceSegment[]> {
+    return new Promise((resolve, reject) => {
+      const silences: SilenceSegment[] = [];
+
+      ffmpeg(audioPath)
+        .audioFilters(`silencedetect=n=${config.audio.silenceThreshold}dB:d=${config.audio.silenceDuration}`)
+        .format('null')
+        .on('stderr', (stderrLine) => {
+          // Parse silence detection output
+          const silenceStartMatch = stderrLine.match(/silence_start: ([\d.]+)/);
+          const silenceEndMatch = stderrLine.match(/silence_end: ([\d.]+) \| silence_duration: ([\d.]+)/);
+
+          if (silenceStartMatch && silenceEndMatch) {
+            const start = parseFloat(silenceStartMatch[1] || '0');
+            const end = parseFloat(silenceEndMatch[1] || '0');
+            const duration = parseFloat(silenceEndMatch[2] || '0');
+
+            silences.push({
+              start: start,
+              end: end,
+              duration: duration
+            });
+          }
+        })
+        .on('end', () => {
+          // Sort silences by start time
+          silences.sort((a, b) => a.start - b.start);
+          resolve(silences);
+        })
+        .on('error', (err) => {
+          logger.warn('⚠️ Falha na detecção de silêncio, usando cortes tradicionais', {
+            error: err.message,
+            fallback: 'Cortes por tempo exato'
+          });
+          resolve([]); // Return empty array to fallback to traditional cutting
+        })
+        .output('-')
+        .run();
+    });
+  }
+
+  private analyzeSilenceDistribution(silences: SilenceSegment[], totalDuration: number): string {
+    if (silences.length === 0) return 'Nenhum silêncio detectado';
+
+    const intervals = Math.ceil(totalDuration / 300); // 5min intervals
+    const distribution = new Array(intervals).fill(0);
+
+    silences.forEach(silence => {
+      const intervalIndex = Math.floor(silence.start / 300);
+      if (intervalIndex < intervals) {
+        distribution[intervalIndex]++;
+      }
+    });
+
+    return `${distribution.join(',')} por 5min`;
+  }
+
+  private async createSmartChunks(processedPath: string, acceleratedDuration: number, originalDuration: number, originalSizeBytes: number, silences: SilenceSegment[]): Promise<AudioChunk[]> {
     const chunks: AudioChunk[] = [];
     const maxChunkBytes = 18 * 1024 * 1024; // 18MB limit
     const maxChunkDurationMinutes = 20; // 20min limit
     const maxChunkDurationSecondsAccelerated = maxChunkDurationMinutes * 60;
     const speedFactor = this.speedFactor;
+    const silenceWindow = config.audio.silenceWindow;
+    const minChunkDuration = config.audio.minChunkDuration;
 
     const safeOriginalDuration = originalDuration > 0 ? originalDuration : 1;
 
     // Calculate chunk limits based on accelerated content
-    const acceleratedBytesEstimate = originalSizeBytes; // MP3 size doesn't change much with speed
+    const acceleratedBytesEstimate = originalSizeBytes;
     const acceleratedDurationTotal = safeOriginalDuration / speedFactor;
-
-    // Minimum chunks needed to stay under 20MB limit
     const estimatedBytesPerSecondAccelerated = acceleratedBytesEstimate / acceleratedDurationTotal;
-    const maxAcceleratedChunkSize = maxChunkBytes;
-    const minChunksBySize = Math.max(1, Math.ceil(acceleratedBytesEstimate / maxAcceleratedChunkSize));
 
-    // Minimum chunks needed to stay under 15min limit (after acceleration)
+    // Minimum chunks needed to stay under limits
+    const minChunksBySize = Math.max(1, Math.ceil(acceleratedBytesEstimate / maxChunkBytes));
     const minChunksByDuration = Math.max(1, Math.ceil(acceleratedDurationTotal / maxChunkDurationSecondsAccelerated));
-
     const totalChunksNeeded = Math.max(minChunksByDuration, minChunksBySize);
-    const chunkDurationOriginalTimeline = Math.max(1, safeOriginalDuration / totalChunksNeeded);
 
-    const totalChunks = Math.max(1, Math.ceil(safeOriginalDuration / chunkDurationOriginalTimeline));
+    // Calculate ideal chunk duration (in original timeline)
+    const idealChunkDurationOriginal = safeOriginalDuration / totalChunksNeeded;
 
-    logger.info('🔪 Iniciando divisão em chunks - Limites: 18MB E 20min', {
+    logger.info('🎯 Planejamento inteligente de chunks com snap-to-silence', {
       originalDuration: `${originalDuration.toFixed(2)}s`,
       acceleratedDuration: `${acceleratedDuration.toFixed(2)}s`,
       limits: {
@@ -178,154 +254,208 @@ export class AudioProcessor {
         maxDurationMin: 20,
         speedFactor: `${speedFactor}x`
       },
-      calculation: {
-        minChunksBySize: minChunksBySize,
-        minChunksByDuration: minChunksByDuration,
-        totalChunksNeeded: totalChunksNeeded,
-        plannedChunks: totalChunks
+      silenceConfig: {
+        totalSilences: silences.length,
+        silenceWindow: `±${silenceWindow}s`,
+        minChunkDuration: `${minChunkDuration}s`
       },
-      estimatedChunkDuration: {
-        originalTimeline: `${chunkDurationOriginalTimeline.toFixed(2)}s`,
-        acceleratedTimeline: `${(chunkDurationOriginalTimeline / speedFactor).toFixed(2)}s`
+      planning: {
+        minChunksBySize,
+        minChunksByDuration,
+        totalChunksNeeded,
+        idealChunkDuration: `${idealChunkDurationOriginal.toFixed(2)}s`
       },
-      strategy: 'Satisfaz AMBOS os limites: 18MB E 20min'
+      strategy: 'Snap-to-silence dentro da janela configurada'
     });
 
-    let chunkIndex = 0;
-    let originalStartTime = 0;
+    // Create chunk plans with silence-based cutting
+    const chunkPlans = this.planSilenceBasedChunks(
+      safeOriginalDuration,
+      idealChunkDurationOriginal,
+      silences,
+      silenceWindow,
+      minChunkDuration,
+      estimatedBytesPerSecondAccelerated
+    );
 
-    while (originalStartTime < originalDuration) {
-      const remainingDuration = originalDuration - originalStartTime;
-      if (remainingDuration <= 0) {
-        break;
-      }
+    const totalPlannedDuration = chunkPlans.reduce((sum, p) => sum + p.duration, 0);
+    const lastPlan = chunkPlans[chunkPlans.length - 1];
 
-      let attemptDuration = Math.min(chunkDurationOriginalTimeline, remainingDuration);
-      const acceleratedStartTime = originalStartTime / speedFactor;
-      let acceleratedChunkDuration = Math.max(attemptDuration / speedFactor, 0.001);
-      const chunkPath = path.join(this.chunkDir, `chunk_${String(chunkIndex + 1).padStart(3, '0')}.mp3`);
+    logger.info('📋 Planos de chunk calculados', {
+      totalPlans: chunkPlans.length,
+      silenceUsage: chunkPlans.filter(p => p.usedSilence).length,
+      exactCuts: chunkPlans.filter(p => !p.usedSilence).length,
+      avgChunkDuration: `${(totalPlannedDuration / chunkPlans.length).toFixed(2)}s`,
+      totalPlannedDuration: `${totalPlannedDuration.toFixed(2)}s`,
+      originalDuration: `${safeOriginalDuration.toFixed(2)}s`,
+      lastChunkEnd: lastPlan ? `${(lastPlan.actualStart + lastPlan.duration).toFixed(2)}s` : 'N/A',
+      coverage: `${((totalPlannedDuration / safeOriginalDuration) * 100).toFixed(1)}%`
+    });
 
-      let chunkSizeBytes = 0;
-      let attempts = 0;
+    // Execute chunk creation based on plans
+    for (const plan of chunkPlans) {
+      const chunkPath = path.join(this.chunkDir, `chunk_${String(plan.index + 1).padStart(3, '0')}.mp3`);
 
-      while (true) {
-        await this.createChunk(processedPath, chunkPath, acceleratedStartTime, acceleratedChunkDuration);
+      // Convert to accelerated timeline for cutting
+      const acceleratedStartTime = plan.actualStart / speedFactor;
+      const acceleratedDuration = plan.duration / speedFactor;
 
-        chunkSizeBytes = fs.existsSync(chunkPath) ? fs.statSync(chunkPath).size : 0;
-        if (chunkSizeBytes <= maxChunkBytes || attemptDuration <= 1) {
-          break;
-        }
+      await this.createChunk(processedPath, chunkPath, acceleratedStartTime, acceleratedDuration);
 
-        if (fs.existsSync(chunkPath)) {
-          fs.unlinkSync(chunkPath);
-        }
-        const previousDuration = attemptDuration;
-        attemptDuration = Math.max(previousDuration / 2, 1);
-        acceleratedChunkDuration = Math.max(attemptDuration / speedFactor, 0.001);
-        attempts += 1;
+      const chunkSizeBytes = fs.existsSync(chunkPath) ? fs.statSync(chunkPath).size : 0;
 
-        logger.warn('⚠️ Chunk acima do limite de 18MB - reparticionando', {
-          chunk: `${chunkIndex + 1}/${totalChunks}`,
-          size: {
-            currentMB: (chunkSizeBytes / (1024 * 1024)).toFixed(2),
-            limitMB: 18
-          },
-          duration: {
-            previous: `${previousDuration.toFixed(2)}s`,
-            new: `${attemptDuration.toFixed(2)}s`
-          },
-          attempts,
-          action: 'Reduzindo duração do chunk'
-        });
-      }
-
-      const chunkSizeMB = chunkSizeBytes / (1024 * 1024);
-
+      // Validate chunk meets size constraints
       if (chunkSizeBytes > maxChunkBytes) {
-        logger.error('🚨 CHUNK EXCEDE LIMITE - NÃO FOI POSSÍVEL REDUZIR', {
-          chunk: `${chunkIndex + 1}/${totalChunks}`,
-          finalSize: {
-            sizeMB: chunkSizeMB.toFixed(2),
-            limitMB: 18,
-            excess: `${(chunkSizeMB - 18).toFixed(2)}MB acima`
-          },
-          duration: `${attemptDuration.toFixed(2)}s`,
-          status: 'LIMITE VIOLADO - Prosseguindo com chunk grande'
+        logger.error('💥 CHUNK EXCEDE LIMITE DE 18MB', {
+          chunkIndex: plan.index,
+          actualSizeMB: (chunkSizeBytes / (1024 * 1024)).toFixed(2),
+          maxSizeMB: 18,
+          chunkPath: path.basename(chunkPath),
+          action: 'FALHA CRÍTICA - Chunk muito grande'
         });
+        throw new Error(`Chunk ${plan.index} exceeds 18MB limit: ${(chunkSizeBytes / (1024 * 1024)).toFixed(2)}MB`);
       }
+
+      logger.info(
+        plan.usedSilence ? '✂️ 🔇' : '✂️ ⏱️',
+        {
+          chunkIndex: `${plan.index + 1}/${chunkPlans.length}`,
+          cutType: plan.usedSilence ? 'SILENCE-CUT' : 'EXACT-CUT',
+          originalTimeRange: `${plan.actualStart.toFixed(2)}s - ${(plan.actualStart + plan.duration).toFixed(2)}s`,
+          duration: `${plan.duration.toFixed(2)}s`,
+          sizeMB: `${(chunkSizeBytes / (1024 * 1024)).toFixed(2)}MB`,
+          ...(plan.usedSilence && {
+            silenceUsed: `${plan.silenceStart?.toFixed(2)}s - ${plan.silenceEnd?.toFixed(2)}s`,
+            adjustment: `Target: ${plan.targetEnd.toFixed(2)}s → Actual: ${plan.actualEnd.toFixed(2)}s`
+          })
+        }
+      );
 
       chunks.push({
-        index: chunkIndex + 1,
+        index: plan.index,
         path: chunkPath,
-        duration: attemptDuration,
-        startTime: originalStartTime
+        duration: plan.duration,
+        startTime: plan.actualStart
       });
-
-      const progress = Math.round((chunkIndex + 1) / totalChunks * 100);
-      const sizeStatus = chunkSizeMB <= 18 ? '✅' : '🚨';
-      const durationAccelerated = attemptDuration / speedFactor;
-      const durationStatus = durationAccelerated <= (20 * 60) ? '✅' : '🚨';
-
-      logger.info(`📦 Chunk ${chunkIndex + 1}/${totalChunks} criado [${progress}%]`, {
-        file: path.basename(chunkPath),
-        validation: {
-          size: `${sizeStatus} ${chunkSizeMB.toFixed(2)}MB/${18}MB`,
-          duration: `${durationStatus} ${(durationAccelerated / 60).toFixed(1)}min/20min`
-        },
-        timeline: {
-          original: `${originalStartTime.toFixed(2)}s-${(originalStartTime + attemptDuration).toFixed(2)}s`,
-          accelerated: `${acceleratedStartTime.toFixed(2)}s-${(acceleratedStartTime + acceleratedChunkDuration).toFixed(2)}s`
-        },
-        processing: {
-          repartitionAttempts: attempts,
-          status: chunkSizeMB <= 18 && durationAccelerated <= (20 * 60) ? 'CONFORME' : 'LIMITE VIOLADO'
-        }
-      });
-
-      originalStartTime += attemptDuration;
-      chunkIndex += 1;
     }
 
-    // Validação final de todos os chunks
-    const chunkValidation = chunks.map(chunk => {
-      const chunkStats = fs.existsSync(chunk.path) ? fs.statSync(chunk.path) : null;
-      const chunkSizeMB = chunkStats ? chunkStats.size / (1024 * 1024) : 0;
-      const acceleratedDuration = chunk.duration / speedFactor;
-
-      return {
-        index: chunk.index,
-        sizeValid: chunkSizeMB <= 18,
-        durationValid: acceleratedDuration <= (20 * 60),
-        sizeMB: chunkSizeMB,
-        durationMin: acceleratedDuration / 60
-      };
-    });
-
-    const validChunks = chunkValidation.filter(c => c.sizeValid && c.durationValid).length;
-    const invalidChunks = chunks.length - validChunks;
-
-    logger.info('🎯 CHUNKING FINALIZADO - Resumo da Validação', {
-      summary: {
-        totalChunks: chunks.length,
-        validChunks: validChunks,
-        invalidChunks: invalidChunks,
-        successRate: `${Math.round(validChunks / chunks.length * 100)}%`
-      },
-      limits: {
-        maxSizeMB: 18,
-        maxDurationMin: 20,
-        speedFactor: `${speedFactor}x`
-      },
-      timeline: {
-        originalDuration: `${originalDuration.toFixed(2)}s`,
-        acceleratedDuration: `${acceleratedDuration.toFixed(2)}s`,
-        averageChunkDuration: chunks.length ? `${(originalDuration / chunks.length).toFixed(2)}s` : '0s'
-      },
-      status: invalidChunks === 0 ? '✅ TODOS OS CHUNKS CONFORMES' : `⚠️ ${invalidChunks} CHUNKS VIOLAM LIMITES`,
-      readyForTranscription: true
+    logger.info('🎊 Chunks criados com sucesso usando snap-to-silence', {
+      totalChunks: chunks.length,
+      totalDuration: `${chunks.reduce((sum, c) => sum + c.duration, 0).toFixed(2)}s`,
+      originalDuration: `${originalDuration.toFixed(2)}s`,
+      silenceBasedCuts: chunkPlans.filter(p => p.usedSilence).length,
+      exactCuts: chunkPlans.filter(p => !p.usedSilence).length,
+      averageChunkSize: `${(chunks.reduce((sum, c) => fs.statSync(c.path).size, 0) / chunks.length / (1024 * 1024)).toFixed(2)}MB`,
+      allChunksUnder18MB: '✅ VERIFIED'
     });
 
     return chunks;
+  }
+
+  private planSilenceBasedChunks(
+    totalDuration: number,
+    idealChunkDuration: number,
+    silences: SilenceSegment[],
+    silenceWindow: number,
+    minChunkDuration: number,
+    estimatedBytesPerSecond: number
+  ): SmartChunkPlan[] {
+    const plans: SmartChunkPlan[] = [];
+    let currentStart = 0;
+    let chunkIndex = 0;
+
+    while (currentStart < totalDuration) {
+      const remainingDuration = totalDuration - currentStart;
+      const targetDuration = Math.min(idealChunkDuration, remainingDuration);
+      const targetEnd = currentStart + targetDuration;
+
+      // Find the best silence point within the window
+      const windowStart = Math.max(0, targetEnd - silenceWindow);
+      const windowEnd = Math.min(totalDuration, targetEnd + silenceWindow);
+
+      const candidateSilences = silences.filter(silence =>
+        silence.start >= windowStart && silence.end <= windowEnd
+      );
+
+      let actualEnd = targetEnd;
+      let usedSilence = false;
+      let silenceStart: number | undefined;
+      let silenceEnd: number | undefined;
+
+      if (candidateSilences.length > 0) {
+        // Find the silence closest to target end
+        const bestSilence = candidateSilences.reduce((best, current) => {
+          const bestDistance = Math.abs(best.start + best.duration / 2 - targetEnd);
+          const currentDistance = Math.abs(current.start + current.duration / 2 - targetEnd);
+          return currentDistance < bestDistance ? current : best;
+        });
+
+        // Use the middle of the silence as the cut point
+        actualEnd = bestSilence.start + bestSilence.duration / 2;
+        usedSilence = true;
+        silenceStart = bestSilence.start;
+        silenceEnd = bestSilence.end;
+      }
+
+      const actualDuration = actualEnd - currentStart;
+
+      // Ensure minimum chunk duration but never exceed totalDuration
+      if (actualDuration < minChunkDuration && remainingDuration > minChunkDuration) {
+        actualEnd = Math.min(currentStart + minChunkDuration, totalDuration);
+        usedSilence = false;
+        silenceStart = undefined;
+        silenceEnd = undefined;
+      }
+
+      // CRITICAL: Never let actualEnd exceed totalDuration
+      actualEnd = Math.min(actualEnd, totalDuration);
+      const finalDuration = actualEnd - currentStart;
+
+      // Skip if this would create a chunk with negligible duration
+      if (finalDuration < 0.1) {
+        break;
+      }
+      const estimatedSizeMB = (finalDuration * estimatedBytesPerSecond) / (1024 * 1024);
+
+      const plan: SmartChunkPlan = {
+        index: chunkIndex,
+        targetStart: currentStart,
+        targetEnd: targetEnd,
+        actualStart: currentStart,
+        actualEnd: actualEnd,
+        duration: finalDuration,
+        usedSilence: usedSilence,
+        estimatedSizeMB: estimatedSizeMB
+      };
+
+      if (usedSilence && silenceStart !== undefined && silenceEnd !== undefined) {
+        plan.silenceStart = silenceStart;
+        plan.silenceEnd = silenceEnd;
+      }
+
+      plans.push(plan);
+
+      currentStart = actualEnd;
+      chunkIndex++;
+
+      // CRITICAL: Stop if we've reached the end of the audio
+      if (currentStart >= totalDuration) {
+        break;
+      }
+
+      // Safety break to prevent infinite loops
+      if (chunkIndex > 1000) {
+        logger.warn('⚠️ Muitos chunks planejados, interrompendo', {
+          chunkIndex,
+          currentStart,
+          totalDuration,
+          action: 'Finalizando planejamento'
+        });
+        break;
+      }
+    }
+
+    return plans;
   }
 
   private createChunk(inputPath: string, outputPath: string, startTime: number, duration: number): Promise<void> {

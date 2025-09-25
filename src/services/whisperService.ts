@@ -30,44 +30,102 @@ export class WhisperService {
   }
 
   async transcribeChunks(chunks: AudioChunk[]): Promise<ChunkResult[]> {
-    logger.info('🎯 Iniciando transcrição em lote', {
+    logger.info('🎯 INICIANDO TRANSCRIÇÃO COM CONTROLE RIGOROSO', {
       totalChunks: chunks.length,
       concurrentChunks: config.transcription.concurrentChunks,
       model: config.openai.model,
       maxRetries: config.transcription.maxRetries,
-      strategy: 'Parallel processing with semaphore'
+      strategy: 'Garantir 100% de sucesso com retry automático'
     });
 
+    let attempt = 1;
+    const maxGlobalRetries = 3;
+
+    while (attempt <= maxGlobalRetries) {
+      logger.info(`🔄 TENTATIVA ${attempt}/${maxGlobalRetries} - Processando todos os chunks`, {
+        totalChunks: chunks.length,
+        attempt: attempt
+      });
+
+      const results = await this.processChunksWithTracking(chunks, attempt);
+      const successCount = results.filter(r => r.success).length;
+      const failureCount = results.filter(r => !r.success).length;
+      const successRate = (successCount / chunks.length) * 100;
+
+      logger.info(`📊 RESULTADO TENTATIVA ${attempt}`, {
+        successful: `${successCount}/${chunks.length}`,
+        failed: failureCount,
+        successRate: `${successRate.toFixed(1)}%`,
+        status: failureCount === 0 ? '✅ SUCESSO TOTAL' : '⚠️ FALHAS DETECTADAS'
+      });
+
+      if (failureCount === 0) {
+        logger.info('🎆 ✅ TRANSCRIÇÃO 100% CONCLUÍDA COM SUCESSO!', {
+          totalChunks: chunks.length,
+          successful: successCount,
+          attempts: attempt,
+          finalResult: 'TODOS OS CHUNKS PROCESSADOS COM SUCESSO'
+        });
+        return results.sort((a, b) => a.chunkIndex - b.chunkIndex);
+      }
+
+      const failedChunks = results.filter(r => !r.success).map(r => r.chunkIndex);
+      logger.warn(`🔄 TENTATIVA ${attempt} FALHOU - Preparando retry`, {
+        failedChunks: failedChunks,
+        willRetry: attempt < maxGlobalRetries,
+        nextAction: attempt < maxGlobalRetries ? 'Tentando novamente' : 'FALHA DEFINITIVA'
+      });
+
+      attempt++;
+
+      if (attempt <= maxGlobalRetries) {
+        await new Promise(resolve => setTimeout(resolve, 2000 * attempt)); // Delay progressivo
+      }
+    }
+
+    // Se chegou aqui, falhou todas as tentativas
+    throw new Error(`FALHA CRÍTICA: Impossível processar todos os chunks após ${maxGlobalRetries} tentativas`);
+  }
+
+  private async processChunksWithTracking(chunks: AudioChunk[], globalAttempt: number): Promise<ChunkResult[]> {
     const semaphore = new Semaphore(config.transcription.concurrentChunks);
     const results: ChunkResult[] = [];
+    let processedCount = 0;
+    let successCount = 0;
+    let failureCount = 0;
+
+    const updateProgress = (result: ChunkResult) => {
+      processedCount++;
+      if (result.success) {
+        successCount++;
+      } else {
+        failureCount++;
+      }
+
+      const progress = Math.round((processedCount / chunks.length) * 100);
+      const status = result.success ? '✅' : '❌';
+
+      logger.info(`${status} Chunk ${result.chunkIndex}/${chunks.length} [${progress}%]`, {
+        chunk: `${processedCount}/${chunks.length}`,
+        successful: successCount,
+        failed: failureCount,
+        status: result.success ? 'SUCESSO' : `FALHA: ${result.error}`,
+        globalAttempt: globalAttempt,
+        progress: `${progress}%`
+      });
+    };
 
     const promises = chunks.map(async (chunk) => {
       return semaphore.acquire(async () => {
         const result = await this.transcribeChunk(chunk);
+        updateProgress(result);
         results.push(result);
         return result;
       });
     });
 
     await Promise.all(promises);
-
-    const successCount = results.filter(r => r.success).length;
-    const failureCount = results.filter(r => !r.success).length;
-
-    const successRate = (successCount / chunks.length) * 100;
-    const totalRetries = results.reduce((sum, r) => sum + r.retries, 0);
-
-    logger.info('🎆 TRANSCRIÇÃO CONCLUÍDA', {
-      totalChunks: chunks.length,
-      successful: successCount,
-      failed: failureCount,
-      successRate: `${successRate.toFixed(1)}%`,
-      totalRetries,
-      avgRetriesPerChunk: (totalRetries / chunks.length).toFixed(2),
-      readyForProcessing: true
-    });
-
-    return results.sort((a, b) => a.chunkIndex - b.chunkIndex);
+    return results;
   }
 
   private async transcribeChunk(chunk: AudioChunk): Promise<ChunkResult> {
