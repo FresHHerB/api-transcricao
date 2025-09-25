@@ -81,6 +81,7 @@ export class WhisperService {
         return {
           chunkIndex: chunk.index,
           chunkPath: chunk.path,
+          chunkStartTime: chunk.startTime,
           success: true,
           segments: cachedData.segments,
           retries: 0,
@@ -129,6 +130,7 @@ export class WhisperService {
             return {
               chunkIndex: chunk.index,
               chunkPath: chunk.path,
+              chunkStartTime: chunk.startTime,
               success: true,
               segments: response.segments,
               retries: retryCount,
@@ -202,6 +204,7 @@ export class WhisperService {
       return {
         chunkIndex: chunk.index,
         chunkPath: chunk.path,
+        chunkStartTime: chunk.startTime,
         success: false,
         error: errorMessage,
         retries: retryCount

@@ -36,6 +36,7 @@ export interface AudioChunk {
 export interface ChunkResult {
   chunkIndex: number;
   chunkPath: string;
+  chunkStartTime: number; // Tempo de início original do chunk (sem speed factor)
   success: boolean;
   segments?: WhisperSegment[];
   error?: string;

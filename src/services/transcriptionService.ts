@@ -245,16 +245,20 @@ export class TranscriptionService {
   ): { segments: TranscriptionSegment[]; warnings: string[] } {
     const segments: TranscriptionSegment[] = [];
     const warnings: string[] = [];
-    let timeOffset = 0;
     let segmentIndex = 1;
 
     for (const result of chunkResults) {
+      // CORREÇÃO PRINCIPAL: Usar o startTime real de cada chunk em vez de acumular offset
+      const timeOffset = result.chunkStartTime;
+
       if (result.success && result.segments) {
         for (const segment of result.segments) {
           const correctedSegment: TranscriptionSegment = {
             index: segmentIndex++,
-            start: segment.start * speedFactor + timeOffset,
-            end: segment.end * speedFactor + timeOffset,
+            // A API da Whisper já retorna timestamps para o áudio acelerado
+            // Somamos apenas o tempo de início real do chunk
+            start: segment.start + timeOffset,
+            end: segment.end + timeOffset,
             text: segment.text.trim()
           };
 
@@ -263,26 +267,24 @@ export class TranscriptionService {
           }
         }
 
-        if (result.segments.length > 0) {
-          const lastSegment = result.segments[result.segments.length - 1];
-          if (lastSegment) {
-            timeOffset = lastSegment.end * speedFactor + timeOffset;
-          }
-        } else {
-          timeOffset += config.audio.chunkTime * speedFactor;
-        }
+        logger.debug('🎯 Chunk processado com timestamps corrigidos', {
+          chunkIndex: result.chunkIndex,
+          chunkStartTime: timeOffset.toFixed(2),
+          segmentsInChunk: result.segments.length,
+          firstSegmentStart: result.segments[0]?.start.toFixed(2),
+          lastSegmentEnd: result.segments[result.segments.length - 1]?.end.toFixed(2)
+        });
       } else {
         const chunkName = path.basename(result.chunkPath);
-        const warning = `${chunkName}: ${result.error || 'transcription failed'}; timestamps estimated`;
+        const warning = `${chunkName} (starts at ${timeOffset.toFixed(2)}s): ${result.error || 'transcription failed'}`;
         warnings.push(warning);
 
-        timeOffset += config.audio.chunkTime * speedFactor;
-
-        logger.warn('Chunk failed, estimating time offset', {
+        logger.warn('🚨 Chunk com falha - timestamps perdidos', {
           chunkIndex: result.chunkIndex,
           chunkPath: result.chunkPath,
-          estimatedOffset: timeOffset,
-          error: result.error
+          chunkStartTime: `${timeOffset.toFixed(2)}s`,
+          error: result.error,
+          impact: 'Segmento de áudio sem transcrição'
         });
       }
     }
