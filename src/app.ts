@@ -85,6 +85,25 @@ if (!fs.existsSync(config.directories.logs)) {
   fs.mkdirSync(config.directories.logs, { recursive: true });
 }
 
+// Serve static files from output directory
+app.use('/output', express.static(config.directories.output, {
+  maxAge: '24h', // Cache for 24 hours
+  setHeaders: (res, path) => {
+    // Set appropriate headers for different file types
+    if (path.endsWith('.srt')) {
+      res.setHeader('Content-Type', 'text/srt; charset=utf-8');
+    } else if (path.endsWith('.txt')) {
+      res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+    } else if (path.endsWith('.json')) {
+      res.setHeader('Content-Type', 'application/json; charset=utf-8');
+    }
+
+    // Add download headers
+    const filename = path.split('/').pop() || 'file';
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+  }
+}));
+
 app.use('/', transcriptionRoutes);
 
 app.get('/', (req, res) => {
@@ -96,7 +115,8 @@ app.get('/', (req, res) => {
     endpoints: {
       transcribe: 'POST /transcribe',
       health: 'GET /health',
-      status: 'GET /status/:jobId'
+      status: 'GET /status/:jobId',
+      files: 'GET /output/:jobId/:filename'
     },
     documentation: {
       transcribe: {
@@ -124,6 +144,7 @@ app.use('*', (req, res) => {
       'POST /transcribe',
       'GET /health',
       'GET /status/:jobId',
+      'GET /output/:jobId/:filename',
       'GET /'
     ]
   });
