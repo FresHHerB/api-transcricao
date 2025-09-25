@@ -148,28 +148,43 @@ export class AudioProcessor {
   async createChunks(processedPath: string, acceleratedDuration: number, originalDuration: number, originalSizeBytes: number): Promise<AudioChunk[]> {
     const chunks: AudioChunk[] = [];
     const maxChunkBytes = 20 * 1024 * 1024;
-    const durationLimitSeconds = config.audio.chunkTime;
+    const maxChunkDurationMinutes = 15;
+    const maxChunkDurationSecondsAccelerated = maxChunkDurationMinutes * 60;
     const speedFactor = this.speedFactor;
 
     const safeOriginalDuration = originalDuration > 0 ? originalDuration : 1;
-    const bytesPerSecond = originalSizeBytes > 0 ? originalSizeBytes / safeOriginalDuration : 0;
 
-    const minChunksByDuration = Math.max(1, Math.ceil(safeOriginalDuration / durationLimitSeconds));
-    const minChunksBySize = bytesPerSecond > 0 ? Math.max(1, Math.ceil(originalSizeBytes / maxChunkBytes)) : 1;
-    const plannedChunks = Math.max(minChunksByDuration, minChunksBySize);
-    const rawChunkDuration = safeOriginalDuration / plannedChunks;
-    const chunkDuration = Math.min(durationLimitSeconds, Math.max(1, rawChunkDuration));
-    const totalChunks = Math.max(1, Math.ceil(safeOriginalDuration / chunkDuration));
+    // Calculate chunk limits based on accelerated content
+    const acceleratedBytesEstimate = originalSizeBytes; // MP3 size doesn't change much with speed
+    const acceleratedDurationTotal = safeOriginalDuration / speedFactor;
 
-    logger.info('🔪 Iniciando divisão em chunks', {
+    // Minimum chunks needed to stay under 20MB limit
+    const estimatedBytesPerSecondAccelerated = acceleratedBytesEstimate / acceleratedDurationTotal;
+    const maxAcceleratedChunkSize = maxChunkBytes;
+    const minChunksBySize = Math.max(1, Math.ceil(acceleratedBytesEstimate / maxAcceleratedChunkSize));
+
+    // Minimum chunks needed to stay under 15min limit (after acceleration)
+    const minChunksByDuration = Math.max(1, Math.ceil(acceleratedDurationTotal / maxChunkDurationSecondsAccelerated));
+
+    const totalChunksNeeded = Math.max(minChunksByDuration, minChunksBySize);
+    const chunkDurationOriginalTimeline = Math.max(1, safeOriginalDuration / totalChunksNeeded);
+
+    const totalChunks = Math.max(1, Math.ceil(safeOriginalDuration / chunkDurationOriginalTimeline));
+
+    logger.info('🔪 Iniciando divisão em chunks com nova lógica (20MB + 15min)', {
       originalDuration: `${originalDuration.toFixed(2)}s`,
       acceleratedDuration: `${acceleratedDuration.toFixed(2)}s`,
-      durationLimitSeconds,
-      sizeLimitMB: 20,
+      maxChunkDurationMinutes: maxChunkDurationMinutes,
+      maxChunkSizeMB: 20,
+      minChunksBySize: minChunksBySize,
+      minChunksByDuration: minChunksByDuration,
+      totalChunksNeeded: totalChunksNeeded,
       plannedChunks: totalChunks,
-      estimatedChunkDuration: `${chunkDuration.toFixed(2)}s`,
-      bytesPerSecond: bytesPerSecond ? `${bytesPerSecond.toFixed(0)} B/s` : 'unknown',
-      speedFactor
+      estimatedChunkDuration: `${chunkDurationOriginalTimeline.toFixed(2)}s (original timeline)`,
+      estimatedAcceleratedChunkDuration: `${(chunkDurationOriginalTimeline / speedFactor).toFixed(2)}s (accelerated)`,
+      acceleratedBytesEstimate: `${(acceleratedBytesEstimate / (1024 * 1024)).toFixed(2)}MB`,
+      speedFactor: `${speedFactor}x`,
+      strategy: 'Calculated for 20MB and 15min limits after acceleration'
     });
 
     let chunkIndex = 0;
@@ -181,10 +196,9 @@ export class AudioProcessor {
         break;
       }
 
-      let attemptDuration = Math.min(chunkDuration, remainingDuration);
+      let attemptDuration = Math.min(chunkDurationOriginalTimeline, remainingDuration);
       const acceleratedStartTime = originalStartTime / speedFactor;
       let acceleratedChunkDuration = Math.max(attemptDuration / speedFactor, 0.001);
-      // ALTERAÇÃO: Mudar a extensão do arquivo para .flac
       const chunkPath = path.join(this.chunkDir, `chunk_${String(chunkIndex + 1).padStart(3, '0')}.flac`);
 
       let chunkSizeBytes = 0;
@@ -254,7 +268,8 @@ export class AudioProcessor {
       originalTotalSize: `${originalDuration.toFixed(2)}s`,
       acceleratedTotalSize: `${acceleratedDuration.toFixed(2)}s`,
       averageOriginalChunkSize: chunks.length ? `${(originalDuration / chunks.length).toFixed(2)}s` : '0s',
-      chunkLimitSeconds: durationLimitSeconds,
+      maxChunkDurationMinutes: maxChunkDurationMinutes,
+      maxChunkDurationSecondsAccelerated: maxChunkDurationSecondsAccelerated,
       chunkLimitMB: 20,
       readyForTranscription: true
     });

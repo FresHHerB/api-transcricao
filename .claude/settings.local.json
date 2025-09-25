@@ -9,7 +9,8 @@
       "Read(//d/code/freela/autodark/**)",
       "Read(//d/code/freela/server-api/**)",
       "Bash(npm start)",
-      "Bash(curl:*)"
+      "Bash(curl:*)",
+      "Bash(git rebase:*)"
     ],
     "deny": [],
     "ask": []

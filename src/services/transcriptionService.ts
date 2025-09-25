@@ -31,7 +31,7 @@ export class TranscriptionService {
       retryAttempts: 0
     };
 
-    const effectiveSpeedFactor = speedFactor ?? config.audio.speedFactor ?? 2;
+    const effectiveSpeedFactor = speedFactor ?? config.audio.speedFactor ?? 1.5;
 
     jobLogger.info('🚀 INICIANDO JOB DE TRANSCRIÇÃO', {
       jobId,
@@ -51,7 +51,7 @@ export class TranscriptionService {
 
     const audioProcessor = new AudioProcessor(jobId, effectiveSpeedFactor);
     const whisperService = new WhisperService(jobId);
-    const outputFormatter = new OutputFormatter(jobId);
+    const outputFormatter = new OutputFormatter(jobId, effectiveSpeedFactor);
 
     try {
       jobLogger.info('🎵 FASE 1: Processando áudio', {

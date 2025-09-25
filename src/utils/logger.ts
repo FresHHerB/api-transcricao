@@ -14,23 +14,44 @@ const logFormat = winston.format.combine(
 );
 
 const consoleFormat = winston.format.combine(
-  winston.format.timestamp({ format: 'YYYY-MM-DD HH:mm:ss' }),
+  winston.format.timestamp({ format: 'HH:mm:ss' }),
   winston.format.colorize(),
-  winston.format.printf(({ timestamp, level, message, service, jobId, ...meta }) => {
+  winston.format.printf(({ timestamp, level, message, service, jobId, phase, ...meta }) => {
     const messageStr = String(message);
-    let baseLog = `${timestamp} - ${service || 'api-transcricao'} - ${level}`;
-    if (jobId) baseLog += ` [${jobId}]`;
-    baseLog += ` - ${messageStr}`;
+    let baseLog = `${timestamp}`;
 
-    // Don't print metadata for simple messages to keep logs clean
-    const shouldShowMeta = Object.keys(meta).length > 0 &&
-                          !messageStr.includes('💬') &&
-                          !messageStr.includes('✅') &&
-                          !messageStr.includes('⚠️') &&
-                          !messageStr.includes('❌');
+    // Add job indicator for better tracking
+    if (jobId) {
+      const shortJobId = String(jobId).substring(0, 8);
+      baseLog += ` [${shortJobId}]`;
+    }
+
+    // Add phase for better flow tracking
+    if (phase) {
+      baseLog += ` {${phase}}`;
+    }
+
+    baseLog += ` ${level} ${messageStr}`;
+
+    // Show metadata only for important logs or when specifically needed
+    const shouldShowMeta = Object.keys(meta).length > 0 && (
+      messageStr.includes('INICIANDO') ||
+      messageStr.includes('CONCLUÍDO') ||
+      messageStr.includes('FALHOU') ||
+      messageStr.includes('chunks') ||
+      messageStr.includes('processamento') ||
+      level.includes('error') ||
+      level.includes('warn')
+    );
 
     if (shouldShowMeta) {
-      baseLog += ` ${JSON.stringify(meta)}`;
+      // Format metadata more cleanly
+      const cleanMeta = Object.fromEntries(
+        Object.entries(meta).filter(([key]) => !['service', 'timestamp'].includes(key))
+      );
+      if (Object.keys(cleanMeta).length > 0) {
+        baseLog += `\n    ${JSON.stringify(cleanMeta, null, 2).replace(/\n/g, '\n    ')}`;
+      }
     }
 
     return baseLog;

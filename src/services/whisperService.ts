@@ -18,7 +18,7 @@ export class WhisperService {
     this.transcriptsDir = path.join(
       config.directories.temp,
       `job_${jobId}`,
-      `temp_transcripts_${config.audio.speedFactor}x`
+      `temp_transcripts_1.5x`
     );
     this.ensureTranscriptsDirectory();
   }

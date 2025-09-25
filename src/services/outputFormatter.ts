@@ -6,9 +6,11 @@ import { logger } from '../utils/logger';
 
 export class OutputFormatter {
   private outputDir: string;
+  private speedFactor: number;
 
-  constructor(jobId: string) {
+  constructor(jobId: string, speedFactor: number = 1.5) {
     this.outputDir = path.join(config.directories.output, jobId);
+    this.speedFactor = speedFactor;
     this.ensureOutputDirectory();
   }
 
@@ -22,7 +24,7 @@ export class OutputFormatter {
   }
 
   async generateSRT(segments: TranscriptionSegment[], jobId: string): Promise<string> {
-    const srtPath = path.join(this.outputDir, `transcript_${config.audio.speedFactor}x.srt`);
+    const srtPath = path.join(this.outputDir, `transcript_${this.speedFactor}x.srt`);
 
     logger.info('🎥 Gerando arquivo SRT', {
       srtPath: path.basename(srtPath),
@@ -49,7 +51,7 @@ export class OutputFormatter {
   }
 
   async generateTXT(fullText: string, jobId: string): Promise<string> {
-    const txtPath = path.join(this.outputDir, `transcript_${config.audio.speedFactor}x.txt`);
+    const txtPath = path.join(this.outputDir, `transcript_${this.speedFactor}x.txt`);
 
     logger.info('📄 Gerando arquivo TXT', {
       txtPath: path.basename(txtPath),
