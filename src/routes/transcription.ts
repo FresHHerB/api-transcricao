@@ -2,7 +2,7 @@ import { Router, Request, Response } from 'express';
 import { TranscriptionService } from '../services/transcriptionService';
 import { OutputFormatter } from '../services/outputFormatter';
 import { authenticateToken, AuthenticatedRequest } from '../middleware/auth';
-import { uploadMiddleware, handleUploadError } from '../middleware/upload';
+import { uploadMiddleware, handleUploadError, validateAudioFile } from '../middleware/upload';
 import { logger } from '../utils/logger';
 import { OutputFormat, TranscribeRequest } from '../types';
 import { config } from '../config/env';
@@ -54,6 +54,26 @@ router.post('/transcribe',
       }
 
       const { speed, format } = requestData as Required<TranscribeRequest>;
+
+      // Validar arquivo de áudio antes do processamento
+      try {
+        const audioValidation = await validateAudioFile(req.file.path);
+
+        if (audioValidation.suspicious) {
+          logger.warn('🚨 ARQUIVO SUSPEITO DETECTADO', {
+            requestId,
+            fileName: req.file.originalname,
+            warning: audioValidation.warning,
+            durationMinutes: (audioValidation.duration / 60).toFixed(1),
+            recommendation: 'Verificar com cliente se arquivo está correto'
+          });
+        }
+      } catch (error) {
+        logger.warn('⚠️ Falha na validação de áudio, continuando...', {
+          requestId,
+          error: error instanceof Error ? error.message : 'Unknown error'
+        });
+      }
 
       logger.info('🚀 NOVA REQUISIÇÃO DE TRANSCRIÇÃO', {
         requestId,

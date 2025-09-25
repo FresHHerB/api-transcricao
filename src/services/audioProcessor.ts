@@ -46,12 +46,31 @@ export class AudioProcessor {
         .audioQuality(config.audio.quality)
         .on('codecData', (data) => {
           duration = this.parseDuration(data.duration);
+          const originalDuration = duration / config.audio.speedFactor;
+
+          // Validação: detectar possível conteúdo duplicado
+          const suspiciouslyLong = originalDuration > 7200; // > 2 horas
+          const possibleDuplication = originalDuration > 3600 && (originalDuration % 1800 < 60 || originalDuration % 1937 < 60);
+
           logger.info('📊 Informações do áudio detectadas', {
             duration: `${duration.toFixed(2)}s`,
             format: data.format,
-            estimatedOriginalDuration: `${(duration / config.audio.speedFactor).toFixed(2)}s`,
-            codec: data.audio_details || 'N/A'
+            estimatedOriginalDuration: `${originalDuration.toFixed(2)}s`,
+            codec: data.audio_details || 'N/A',
+            ...(suspiciouslyLong && { warning: '⚠️ Áudio muito longo - possível duplicação' }),
+            ...(possibleDuplication && { alert: '🚨 Possível conteúdo duplicado detectado' })
           });
+
+          // Log extra para debug em casos suspeitos
+          if (suspiciouslyLong || possibleDuplication) {
+            logger.warn('🔍 Análise de possível duplicação', {
+              originalDurationMinutes: (originalDuration / 60).toFixed(1),
+              suspiciouslyLong,
+              possibleDuplication,
+              inputFile: path.basename(inputPath),
+              recommendation: 'Verificar arquivo de origem para conteúdo duplicado'
+            });
+          }
         })
         .on('progress', (progress) => {
           if (progress.percent && progress.percent % 25 === 0) {

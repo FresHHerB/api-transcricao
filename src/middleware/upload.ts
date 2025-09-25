@@ -1,5 +1,6 @@
 import multer from 'multer';
 import path from 'path';
+import ffmpeg from 'fluent-ffmpeg';
 import { config } from '../config/env';
 import { logger } from '../utils/logger';
 
@@ -46,6 +47,42 @@ export const uploadMiddleware = multer({
     fileSize: config.audio.maxFileSizeMB * 1024 * 1024
   }
 }).single('audio');
+
+// Função para validar metadados do áudio após upload
+export const validateAudioFile = async (filePath: string): Promise<{ duration: number; suspicious: boolean; warning?: string }> => {
+  return new Promise((resolve, reject) => {
+    ffmpeg.ffprobe(filePath, (err, metadata) => {
+      if (err) {
+        logger.error('❌ Erro ao analisar metadados do áudio', { error: err.message });
+        reject(err);
+        return;
+      }
+
+      const duration = metadata.format.duration || 0;
+      const durationMinutes = duration / 60;
+
+      // Detectar arquivos suspeitos
+      const suspiciouslyLong = duration > 7200; // > 2 horas
+      const possibleLoop = duration > 3600 && (duration % 1800 < 60 || duration % 1937 < 60);
+      const suspicious = suspiciouslyLong || possibleLoop;
+
+      let warning = '';
+      if (suspiciouslyLong) warning = '⚠️ Arquivo muito longo - possível duplicação';
+      if (possibleLoop) warning = '🚨 Possível conteúdo em loop detectado';
+
+      logger.info('🎵 Metadados do arquivo validados', {
+        duration: `${duration.toFixed(2)}s`,
+        durationMinutes: `${durationMinutes.toFixed(1)}min`,
+        fileSize: metadata.format.size ? `${(Number(metadata.format.size) / 1024 / 1024).toFixed(1)}MB` : 'unknown',
+        bitRate: metadata.format.bit_rate ? `${Math.round(Number(metadata.format.bit_rate) / 1000)}kbps` : 'unknown',
+        suspicious,
+        ...(warning && { warning })
+      });
+
+      resolve({ duration, suspicious, warning });
+    });
+  });
+};
 
 export const handleUploadError = (error: any, req: any, res: any, next: any): void => {
   if (error instanceof multer.MulterError) {
