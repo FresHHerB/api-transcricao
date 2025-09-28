@@ -14,7 +14,7 @@ const runwareWebSocketService = new RunwareWebSocketService();
 
 const sceneSchema = Joi.object({
   index: Joi.number().integer().min(0).required(),
-  texto: Joi.string().min(1).max(2000).required()
+  texto: Joi.string().min(1).required()
 });
 
 const generateImageRequestSchema = Joi.object({
@@ -24,8 +24,8 @@ const generateImageRequestSchema = Joi.object({
   largura: Joi.number().integer().min(512).max(2048).required(),
   estilo: Joi.string().min(1).max(500).required(),
   detalhe_estilo: Joi.string().min(1).max(1000).required(),
-  roteiro: Joi.string().min(1).max(10000).required(),
-  agente: Joi.string().min(1).max(2000).required()
+  roteiro: Joi.string().min(1).required(),
+  agente: Joi.string().min(1).required()
 });
 
 router.post('/generateImage',
