@@ -44,7 +44,8 @@ const envSchema = Joi.object({
   // Image Generation Configuration
   OPENROUTER_MODEL: Joi.string().default('google/gemini-2.0-flash'),
   IMAGE_GENERATION_TIMEOUT: Joi.number().default(120000),
-  MAX_CONCURRENT_IMAGES: Joi.number().default(3),
+  MAX_CONCURRENT_IMAGES: Joi.number().default(5),
+  BATCH_SIZE_IMAGES: Joi.number().default(5),
 
   // CORS Configuration
   CORS_ALLOW_ORIGINS: Joi.string().default('*'),
@@ -124,7 +125,8 @@ export const config = {
   // Image Generation Configuration
   imageGeneration: {
     timeout: envVars.IMAGE_GENERATION_TIMEOUT,
-    maxConcurrentImages: envVars.MAX_CONCURRENT_IMAGES
+    maxConcurrentImages: envVars.MAX_CONCURRENT_IMAGES,
+    batchSize: envVars.BATCH_SIZE_IMAGES
   },
 
   // CORS Configuration

@@ -20,14 +20,19 @@ export class OpenRouterService {
     sceneIndex: number
   ): Promise<string> {
     const requestId = `openrouter_${Date.now()}_${sceneIndex}`;
+    const maxRetries = 3;
+    let lastError: Error | null = null;
 
-    try {
-      logger.info('🎨 Generating prompt with OpenRouter', {
-        requestId,
-        sceneIndex,
-        model: config.openrouter.model,
-        textLength: texto.length
-      });
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        logger.info('🎨 Generating prompt with OpenRouter', {
+          requestId,
+          sceneIndex,
+          model: config.openrouter.model,
+          textLength: texto.length,
+          attempt,
+          maxAttempts: maxRetries
+        });
 
       const userContent = `###SCRIPT EXCERPT
 ${texto}
@@ -79,27 +84,51 @@ ${roteiro}`;
         throw new Error('Empty response from OpenRouter API');
       }
 
-      logger.info('✅ Prompt generated successfully', {
-        requestId,
-        sceneIndex,
-        promptLength: generatedPrompt.length,
-        tokensUsed: response.data.usage?.total_tokens || 0
-      });
+        logger.info('✅ Prompt generated successfully', {
+          requestId,
+          sceneIndex,
+          promptLength: generatedPrompt.length,
+          tokensUsed: response.data.usage?.total_tokens || 0,
+          attemptsUsed: attempt
+        });
 
-      return generatedPrompt;
+        return generatedPrompt;
 
-    } catch (error) {
-      const errorMessage = this.extractErrorMessage(error);
+      } catch (error) {
+        lastError = error instanceof Error ? error : new Error('Unknown error');
+        const errorMessage = this.extractErrorMessage(error);
 
-      logger.error('❌ OpenRouter prompt generation failed', {
-        requestId,
-        sceneIndex,
-        error: errorMessage,
-        model: config.openrouter.model
-      });
+        logger.warn('⚠️ OpenRouter prompt generation attempt failed', {
+          requestId,
+          sceneIndex,
+          error: errorMessage,
+          model: config.openrouter.model,
+          attempt,
+          maxAttempts: maxRetries
+        });
 
-      throw new Error(`OpenRouter API failed: ${errorMessage}`);
+        if (attempt < maxRetries) {
+          const retryDelay = Math.min(1000 * Math.pow(2, attempt - 1), 5000);
+          logger.info('⏳ Retrying prompt generation', {
+            requestId,
+            sceneIndex,
+            retryDelayMs: retryDelay,
+            nextAttempt: attempt + 1
+          });
+          await new Promise(resolve => setTimeout(resolve, retryDelay));
+        }
+      }
     }
+
+    logger.error('❌ OpenRouter prompt generation failed after all retries', {
+      requestId,
+      sceneIndex,
+      error: lastError?.message,
+      model: config.openrouter.model,
+      totalAttempts: maxRetries
+    });
+
+    throw new Error(`OpenRouter API failed after ${maxRetries} attempts: ${lastError?.message}`);
   }
 
   async generatePromptsForScenes(
@@ -145,22 +174,66 @@ ${roteiro}`;
       }
     });
 
+    // Retry failed prompts
     if (failed.length > 0) {
-      logger.warn('⚠️ Some prompt generations failed', {
+      logger.warn('⚠️ Some prompt generations failed, retrying...', {
         successful: successful.length,
         failed: failed.length,
         failures: failed
       });
+
+      const failedScenes = failed.map(f => scenes.find(s => s.index === f.sceneIndex)).filter(Boolean);
+
+      if (failedScenes.length > 0) {
+        logger.info('🔄 Retrying failed prompt generations', {
+          retryCount: failedScenes.length
+        });
+
+        const retryResults = await Promise.allSettled(
+          failedScenes.map(async (scene) => {
+            if (!scene) return Promise.reject(new Error('Scene not found'));
+
+            // Wait a bit before retry to avoid rate limiting
+            await new Promise(resolve => setTimeout(resolve, 1000));
+
+            const prompt = await this.generatePrompt(
+              scene.texto,
+              estilo,
+              detalheEstilo,
+              roteiro,
+              agente,
+              scene.index
+            );
+            return { index: scene.index, prompt };
+          })
+        );
+
+        const retrySuccessful = retryResults
+          .filter((result): result is PromiseFulfilledResult<{ index: number; prompt: string }> =>
+            result.status === 'fulfilled'
+          )
+          .map(result => result.value);
+
+        successful.push(...retrySuccessful);
+
+        logger.info('🔄 Retry completed', {
+          originalSuccessful: successful.length - retrySuccessful.length,
+          retrySuccessful: retrySuccessful.length,
+          totalSuccessful: successful.length,
+          remainingFailed: failed.length - retrySuccessful.length
+        });
+      }
     }
 
     if (successful.length === 0) {
-      throw new Error('All prompt generations failed');
+      throw new Error('All prompt generations failed after retries');
     }
 
     logger.info('🎉 Batch prompt generation completed', {
       successful: successful.length,
-      failed: failed.length,
-      totalScenes: scenes.length
+      failed: Math.max(0, scenes.length - successful.length),
+      totalScenes: scenes.length,
+      successRate: `${((successful.length / scenes.length) * 100).toFixed(1)}%`
     });
 
     return successful;

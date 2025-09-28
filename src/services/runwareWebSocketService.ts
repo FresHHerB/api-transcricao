@@ -265,8 +265,8 @@ export class RunwareWebSocketService {
   ): Promise<PromiseSettledResult<R>[]> {
     const results: PromiseSettledResult<R>[] = [];
 
-    // Process in smaller, optimized batches for WebSocket
-    const optimalBatchSize = Math.min(limit, 2); // Smaller batches for WebSocket reliability
+    // Use configured batch size from environment settings
+    const optimalBatchSize = config.imageGeneration.batchSize; // Use dedicated BATCH_SIZE_IMAGES setting
 
     logger.info('🚀 Starting optimized concurrent processing', {
       totalItems: items.length,
