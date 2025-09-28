@@ -18,7 +18,7 @@ const sceneSchema = Joi.object({
 });
 
 const generateImageRequestSchema = Joi.object({
-  cenas: Joi.array().items(sceneSchema).min(1).max(10).required(),
+  cenas: Joi.array().items(sceneSchema).min(1).required(),
   image_model: Joi.string().min(1).max(100).required(),
   altura: Joi.number().integer().min(512).max(2048).required(),
   largura: Joi.number().integer().min(512).max(2048).required(),
