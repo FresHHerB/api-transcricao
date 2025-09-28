@@ -12,7 +12,11 @@
       "Bash(curl:*)",
       "Bash(git rebase:*)",
       "Bash(git stash:*)",
-      "Bash(npm run clean:*)"
+      "Bash(npm run clean:*)",
+      "WebFetch(domain:runware.ai)",
+      "WebSearch",
+      "WebFetch(domain:openrouter.ai)",
+      "Bash(npm run dev:*)"
     ],
     "deny": [],
     "ask": []

@@ -1,0 +1,23 @@
+{
+  "cenas": [
+    {
+      "index": 1,
+      "texto": "Marina desperta em sua cabana à beira do lago enquanto os primeiros raios dourados do amanhecer dançam sobre as águas cristalinas. O canto dos pássaros ecoa pela floresta silenciosa, criando uma sinfonia natural que a chama para uma nova jornada."
+    },
+    {
+      "index": 2,
+      "texto": "Ao explorar uma trilha escondida, Marina descobre um portal místico adornado com runas antigas que pulsam com energia azul-violeta. Suas mãos tremem ao tocar a superfície etérea, sentindo a magia ancestral fluir através de seus dedos como eletricidade pura."
+    },
+    {
+      "index": 3,
+      "texto": "Do outro lado do portal, Marina emerge num reino celestial onde dragões dourados voam entre nuvens iridescentes e castelos flutuantes brilham como joias no horizonte infinito. Ela respira fundo, sabendo que encontrou seu verdadeiro destino entre as estrelas."
+    }
+  ],
+  "image_model": "runware:100@1",
+  "altura": 1024,
+  "largura": 1024,
+  "estilo": "Pre-Raphaelite Realism",
+  "detalhe_estilo": "(masterpiece:1.4), (Pre-Raphaelite realism:1.3), oil painting technique",
+  "roteiro": "Marina desperta em sua cabana à beira do lago enquanto os primeiros raios dourados do amanhecer dançam sobre as águas cristalinas. O canto dos pássaros ecoa pela floresta silenciosa, criando uma sinfonia natural que a chama para uma nova jornada. Ao explorar uma trilha escondida, Marina descobre um portal místico adornado com runas antigas que pulsam com energia azul-violeta. Suas mãos tremem ao tocar a superfície etérea, sentindo a magia ancestral fluir através de seus dedos como eletricidade pura. Do outro lado do portal, Marina emerge num reino celestial onde dragões dourados voam entre nuvens iridescentes e castelos flutuantes brilham como joias no horizonte infinito. Ela respira fundo, sabendo que encontrou seu verdadeiro destino entre as estrelas.",
+  "agente": "You are a Master Visual Prompt Engineer specializing in creating production-grade image generation prompts. Your mission: Generate optimized English prompts by analyzing script excerpts within their full narrative context while applying specified visual styles without conflicts. Process: 1) Extract core visual elements from script excerpt 2) Cross-reference with full script for narrative position and character details 3) Apply consistent artistic style throughout 4) Create detailed English prompt with proper weighting (1.4-1.5 for main scene, 1.2-1.3 for style/context) 5) Ensure style consistency (Pre-Raphaelite realism ≠ photographic/digital). Output professional English image generation prompts with industry-standard formatting, technical excellence markers, and 800-1200 character density for optimal AI generation."
+}

@@ -1,0 +1,27 @@
+{
+  "cenas": [
+    {
+      "index": 0,
+      "texto": "Em uma manhã dourada, a jovem Sofia caminha pela floresta ancestral, seus passos ecoando entre as árvores milenares. O vento sussurra segredos antigos enquanto ela segue um caminho de pedras místicas que brilham com luz própria."
+    },
+    {
+      "index": 1,
+      "texto": "Ao chegar numa clareira sagrada, Sofia descobre um altar de cristal onde repousa um amuleto de poder incalculável. O momento em que seus dedos tocam o artefato, uma energia divina percorre seu corpo, transformando-a para sempre."
+    },
+    {
+      "index": 2,
+      "texto": "Visões do passado invadem sua mente, revelando a verdade sobre sua linhagem e o destino que a aguarda. Com o amuleto em mãos, Sofia sente sua força interior despertar, e sua missão finalmente se torna clara."
+    },
+    {
+      "index": 3,
+      "texto": "O céu se abre em luz celestial enquanto ela aceita seu papel como guardiã do equilíbrio entre os mundos. Com nova determinação, Sofia parte em direção ao horizonte, pronta para enfrentar os desafios que virão."
+    }
+  ],
+  "image_model": "runware:100@1",
+  "altura": 1024,
+  "largura": 1024,
+  "estilo": "Pre-Raphaelite Realism",
+  "detalhe_estilo": "(masterpiece:1.4), (Pre-Raphaelite realism:1.3), oil painting technique",
+  "roteiro": "Em uma manhã dourada, a jovem Sofia caminha pela floresta ancestral, seus passos ecoando entre as árvores milenares. O vento sussurra segredos antigos enquanto ela segue um caminho de pedras místicas que brilham com luz própria. Ao chegar numa clareira sagrada, Sofia descobre um altar de cristal onde repousa um amuleto de poder incalculável. O momento em que seus dedos tocam o artefato, uma energia divina percorre seu corpo, transformando-a para sempre. Visões do passado invadem sua mente, revelando a verdade sobre sua linhagem e o destino que a aguarda. Com o amuleto em mãos, Sofia sente sua força interior despertar, e sua missão finalmente se torna clara. O céu se abre em luz celestial enquanto ela aceita seu papel como guardiã do equilíbrio entre os mundos. Com nova determinação, Sofia parte em direção ao horizonte, pronta para enfrentar os desafios que virão.",
+  "agente": "You are a Master Visual Prompt Engineer specializing in creating production-grade image generation prompts. Your mission: Generate optimized English prompts by analyzing script excerpts within their full narrative context while applying specified visual styles without conflicts. Process: 1) Extract core visual elements from script excerpt 2) Cross-reference with full script for narrative position and character details 3) Apply consistent artistic style throughout 4) Create detailed English prompt with proper weighting (1.4-1.5 for main scene, 1.2-1.3 for style/context) 5) Ensure style consistency (Pre-Raphaelite realism ≠ photographic/digital). Output professional English image generation prompts with industry-standard formatting, technical excellence markers, and 800-1200 character density for optimal AI generation."
+}

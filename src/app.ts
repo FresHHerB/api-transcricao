@@ -6,6 +6,7 @@ import rateLimit from 'express-rate-limit';
 import { config } from './config/env';
 import { logger } from './utils/logger';
 import transcriptionRoutes from './routes/transcription';
+import imageGenerationRoutes from './routes/imageGeneration';
 import fs from 'fs';
 import path from 'path';
 
@@ -30,24 +31,25 @@ app.use(cors({
   credentials: true
 }));
 
-const limiter = rateLimit({
-  windowMs: config.rateLimit.windowMs,
-  max: config.rateLimit.maxRequests,
-  message: {
-    error: 'Too many requests',
-    message: `Rate limit exceeded. Maximum ${config.rateLimit.maxRequests} requests per ${config.rateLimit.windowMs / 60000} minutes.`
-  },
-  standardHeaders: true,
-  legacyHeaders: false,
-  skip: (req) => {
-    return req.path === '/health';
-  }
-});
+// Rate limiting disabled as per requirements
+// const limiter = rateLimit({
+//   windowMs: config.rateLimit.windowMs,
+//   max: config.rateLimit.maxRequests,
+//   message: {
+//     error: 'Too many requests',
+//     message: `Rate limit exceeded. Maximum ${config.rateLimit.maxRequests} requests per ${config.rateLimit.windowMs / 60000} minutes.`
+//   },
+//   standardHeaders: true,
+//   legacyHeaders: false,
+//   skip: (req) => {
+//     return req.path === '/health' || req.path === '/generateImage';
+//   }
+// });
 
-app.use(limiter);
+// app.use(limiter);
 
-app.use(express.json({ limit: '10mb' }));
-app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+app.use(express.json({ limit: '100mb' }));
+app.use(express.urlencoded({ extended: true, limit: '100mb' }));
 
 app.use((req, res, next) => {
   const requestId = `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
@@ -105,6 +107,7 @@ app.use('/output', express.static(config.directories.output, {
 }));
 
 app.use('/', transcriptionRoutes);
+app.use('/', imageGenerationRoutes);
 
 app.get('/', (req, res) => {
   res.json({
@@ -114,6 +117,7 @@ app.get('/', (req, res) => {
     timestamp: new Date().toISOString(),
     endpoints: {
       transcribe: 'POST /transcribe',
+      generateImage: 'POST /generateImage',
       health: 'GET /health',
       status: 'GET /status/:jobId',
       files: 'GET /output/:jobId/:filename'
@@ -123,13 +127,31 @@ app.get('/', (req, res) => {
         method: 'POST',
         path: '/transcribe',
         headers: {
-          'Authorization': 'Bearer YOUR_API_KEY',
+          'X-API-Key': 'YOUR_API_KEY',
           'Content-Type': 'multipart/form-data'
         },
         body: {
           audio: 'Audio file (mp3, wav, m4a, ogg, flac, aac)',
           speed: 'Optional: Processing speed factor (1-3, default: 2)',
           format: 'Optional: Output format (json, srt, txt, default: json)'
+        }
+      },
+      generateImage: {
+        method: 'POST',
+        path: '/generateImage',
+        headers: {
+          'X-API-Key': 'YOUR_API_KEY',
+          'Content-Type': 'application/json'
+        },
+        body: {
+          cenas: 'Array of scenes with index and texto',
+          image_model: 'Runware model ID for image generation',
+          altura: 'Image height (512-2048)',
+          largura: 'Image width (512-2048)',
+          estilo: 'Visual style description',
+          detalhe_estilo: 'Detailed style specifications',
+          roteiro: 'Full script/scenario',
+          agente: 'System prompt for prompt generation'
         }
       }
     }
@@ -142,6 +164,7 @@ app.use('*', (req, res) => {
     message: `Route ${req.method} ${req.originalUrl} not found`,
     availableEndpoints: [
       'POST /transcribe',
+      'POST /generateImage',
       'GET /health',
       'GET /status/:jobId',
       'GET /output/:jobId/:filename',

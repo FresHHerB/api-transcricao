@@ -11,6 +11,8 @@ const envSchema = Joi.object({
   // API Keys (Required)
   X_API_KEY: Joi.string().required(),
   OPENAI_API_KEY: Joi.string().required(),
+  OPENROUTER_API_KEY: Joi.string().required(),
+  RUNWARE_API_KEY: Joi.string().required(),
 
   // Audio Processing
   CHUNK_TIME: Joi.number().default(900),
@@ -39,6 +41,11 @@ const envSchema = Joi.object({
   CONCURRENT_CHUNKS: Joi.number().default(4),
   REQUEST_TIMEOUT: Joi.number().default(600000),
 
+  // Image Generation Configuration
+  OPENROUTER_MODEL: Joi.string().default('google/gemini-2.0-flash'),
+  IMAGE_GENERATION_TIMEOUT: Joi.number().default(120000),
+  MAX_CONCURRENT_IMAGES: Joi.number().default(3),
+
   // CORS Configuration
   CORS_ALLOW_ORIGINS: Joi.string().default('*'),
 
@@ -66,6 +73,17 @@ export const config = {
   openai: {
     apiKey: envVars.OPENAI_API_KEY,
     model: 'whisper-1' as const
+  },
+
+  // OpenRouter Configuration
+  openrouter: {
+    apiKey: envVars.OPENROUTER_API_KEY,
+    model: envVars.OPENROUTER_MODEL
+  },
+
+  // Runware Configuration
+  runware: {
+    apiKey: envVars.RUNWARE_API_KEY
   },
 
   // Audio Processing
@@ -101,6 +119,12 @@ export const config = {
     initialRetryDelay: envVars.INITIAL_RETRY_DELAY,
     concurrentChunks: envVars.CONCURRENT_CHUNKS,
     requestTimeout: envVars.REQUEST_TIMEOUT
+  },
+
+  // Image Generation Configuration
+  imageGeneration: {
+    timeout: envVars.IMAGE_GENERATION_TIMEOUT,
+    maxConcurrentImages: envVars.MAX_CONCURRENT_IMAGES
   },
 
   // CORS Configuration

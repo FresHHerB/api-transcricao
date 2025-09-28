@@ -11,22 +11,26 @@ export const authenticateToken = (
   res: Response,
   next: NextFunction
 ): void => {
+  // Check for X-API-Key header first, then Bearer token as fallback
+  const xApiKey = req.headers['x-api-key'] as string;
   const authHeader = req.headers.authorization;
-  const token = authHeader && authHeader.startsWith('Bearer ')
+  const bearerToken = authHeader && authHeader.startsWith('Bearer ')
     ? authHeader.slice(7)
     : null;
 
+  const token = xApiKey || bearerToken;
+
   if (!token) {
-    logger.warn(`🔐 Auth failed: Missing token - ${req.ip} ${req.path}`);
+    logger.warn(`🔐 Auth failed: Missing API key - ${req.ip} ${req.path}`);
     res.status(401).json({
       error: 'Unauthorized',
-      message: 'Bearer token required'
+      message: 'X-API-Key header or Bearer token required'
     });
     return;
   }
 
   if (token !== config.apiKey) {
-    logger.warn(`🔐 Auth failed: Invalid token - ${req.ip} ${req.path}`);
+    logger.warn(`🔐 Auth failed: Invalid API key - ${req.ip} ${req.path}`);
     res.status(401).json({
       error: 'Unauthorized',
       message: 'Invalid API key'

@@ -107,3 +107,99 @@ export interface SmartChunkPlan {
   silenceEnd?: number;
   estimatedSizeMB: number;
 }
+
+// Image Generation Types
+export interface SceneData {
+  index: number;
+  texto: string;
+}
+
+export interface GenerateImageRequest {
+  cenas: SceneData[];
+  image_model: string;
+  altura: number;
+  largura: number;
+  estilo: string;
+  detalhe_estilo: string;
+  roteiro: string;
+  agente: string;
+}
+
+export interface OpenRouterMessage {
+  role: 'system' | 'user' | 'assistant';
+  content: string;
+}
+
+export interface OpenRouterRequest {
+  model: string;
+  messages: OpenRouterMessage[];
+  temperature?: number;
+  max_tokens?: number;
+}
+
+export interface OpenRouterResponse {
+  id: string;
+  object: string;
+  created: number;
+  model: string;
+  choices: {
+    index: number;
+    message: {
+      role: string;
+      content: string;
+    };
+    finish_reason: string;
+  }[];
+  usage: {
+    prompt_tokens: number;
+    completion_tokens: number;
+    total_tokens: number;
+  };
+}
+
+export interface RunwareImageRequest {
+  taskType: 'imageInference';
+  taskUUID: string;
+  positivePrompt: string;
+  model: string;
+  width: number;
+  height: number;
+  outputType?: 'URL' | 'dataURI' | 'base64Data';
+  outputFormat?: 'PNG' | 'JPG' | 'WEBP';
+  seed?: number;
+  steps?: number;
+  CFGScale?: number;
+}
+
+export interface RunwareImageResponse {
+  data: {
+    taskType: string;
+    imageUUID: string;
+    taskUUID: string;
+    seed: number;
+    imageURL: string;
+  }[];
+}
+
+export interface GeneratedImageData {
+  index: number;
+  imageURL: string;
+}
+
+export interface GenerateImageResponse {
+  code: number;
+  message: string;
+  images: GeneratedImageData[];
+  execution: {
+    startTime: string;
+    endTime: string;
+    durationMs: number;
+    durationSeconds: number;
+  };
+  stats: {
+    totalScenes: number;
+    promptsGenerated: number;
+    imagesGenerated: number;
+    successRate: string;
+  };
+}
