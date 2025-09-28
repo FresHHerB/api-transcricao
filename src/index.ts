@@ -32,7 +32,7 @@ const server = app.listen(config.port, () => {
 
   logger.info(`⚙️ Rate Limit: ${config.rateLimit.maxRequests} req/${config.rateLimit.windowMs / 60000}min`);
 
-  logger.info(`🌍 Servidor pronto em http://localhost:${config.port} - Endpoints: POST /transcribe, GET /health, GET /status/:jobId`);
+  logger.info(`🌍 Servidor pronto em http://localhost:${config.port} - Endpoints: POST /generateImage, POST /transcribe, GET /health, GET /status/:jobId`);
 });
 
 process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
