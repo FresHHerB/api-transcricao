@@ -184,6 +184,7 @@ export interface RunwareImageResponse {
 export interface GeneratedImageData {
   index: number;
   imageURL: string;
+  prompt: string;
 }
 
 export interface GenerateImageResponse {

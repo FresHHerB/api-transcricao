@@ -89,7 +89,7 @@ export class RunwareWebSocketService {
     width: number,
     height: number,
     sceneIndex: number
-  ): Promise<string> {
+  ): Promise<{ imageURL: string; prompt: string }> {
     const requestId = `runware_ws_${Date.now()}_${sceneIndex}`;
     const maxRetries = 3;
     let retryCount = 0;
@@ -136,7 +136,7 @@ export class RunwareWebSocketService {
           retriesUsed: retryCount
         });
 
-        return image.imageURL;
+        return { imageURL: image.imageURL, prompt };
 
       } catch (error) {
         const errorMessage = this.extractErrorMessage(error);
@@ -190,7 +190,7 @@ export class RunwareWebSocketService {
     model: string,
     width: number,
     height: number
-  ): Promise<Array<{ index: number; imageURL: string }>> {
+  ): Promise<Array<{ index: number; imageURL: string; prompt: string }>> {
     await this.ensureConnection();
 
     logger.info('🎨 Starting batch image generation via WebSocket', {
@@ -204,20 +204,20 @@ export class RunwareWebSocketService {
     const results = await this.processWithConcurrencyLimit(
       prompts,
       async (promptData) => {
-        const imageURL = await this.generateImage(
+        const result = await this.generateImage(
           promptData.prompt,
           model,
           width,
           height,
           promptData.index
         );
-        return { index: promptData.index, imageURL };
+        return { index: promptData.index, imageURL: result.imageURL, prompt: result.prompt };
       },
       config.imageGeneration.maxConcurrentImages
     );
 
     const successful = results
-      .filter((result): result is PromiseFulfilledResult<{ index: number; imageURL: string }> =>
+      .filter((result): result is PromiseFulfilledResult<{ index: number; imageURL: string; prompt: string }> =>
         result.status === 'fulfilled'
       )
       .map(result => result.value);
