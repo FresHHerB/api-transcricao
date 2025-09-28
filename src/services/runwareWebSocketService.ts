@@ -88,8 +88,7 @@ export class RunwareWebSocketService {
     model: string,
     width: number,
     height: number,
-    sceneIndex: number,
-    seed?: number
+    sceneIndex: number
   ): Promise<string> {
     const requestId = `runware_ws_${Date.now()}_${sceneIndex}`;
     const maxRetries = 3;
@@ -114,11 +113,7 @@ export class RunwareWebSocketService {
           model,
           width,
           height,
-          numberResults: 1,
-          outputFormat: 'JPG' as const,
-          steps: 20,
-          CFGScale: 7,
-          ...(seed !== undefined && { seed })
+          numberResults: 1
         };
 
         const images = await this.runware.requestImages(requestOptions);
