@@ -9,8 +9,7 @@ if (!fs.existsSync(config.directories.logs)) {
 
 const logFormat = winston.format.combine(
   winston.format.timestamp({
-    format: 'YYYY-MM-DD HH:mm:ss',
-    timezone: 'America/Sao_Paulo'
+    format: 'YYYY-MM-DD HH:mm:ss'
   }),
   winston.format.errors({ stack: true }),
   winston.format.json()
@@ -18,8 +17,7 @@ const logFormat = winston.format.combine(
 
 const consoleFormat = winston.format.combine(
   winston.format.timestamp({
-    format: 'HH:mm:ss',
-    timezone: 'America/Sao_Paulo'
+    format: 'HH:mm:ss'
   }),
   winston.format.colorize(),
   winston.format.printf(({ timestamp, level, message, service, jobId, phase, ...meta }) => {
