@@ -342,7 +342,8 @@ export class FFmpegService {
       }
 
       // Split path into segments and encode each one separately
-      const pathSegments = urlObj.pathname.split('/').map(segment =>
+      const originalPathSegments = urlObj.pathname.split('/');
+      const pathSegments = originalPathSegments.map(segment =>
         segment ? encodeURIComponent(segment) : segment
       );
 
@@ -351,12 +352,14 @@ export class FFmpegService {
 
       const finalUrl = urlObj.toString();
 
-      logger.debug('URL encoding completed', {
+      logger.info('URL encoding completed', {
         originalUrl: url,
         finalUrl,
         protocol: urlObj.protocol,
         hostname: urlObj.hostname,
-        port: urlObj.port
+        port: urlObj.port,
+        originalPathSegments,
+        encodedPathSegments: pathSegments
       });
 
       return finalUrl;
