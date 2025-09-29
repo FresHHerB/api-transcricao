@@ -130,9 +130,19 @@ export class FFmpegService {
     const filePath = join(this.tempDir, filename);
 
     try {
+      // Encode URL properly for axios
+      const encodedUrl = this.encodeUrlForAxios(url);
+
+      logger.debug(`📥 Downloading ${type} file`, {
+        requestId,
+        originalUrl: url,
+        encodedUrl,
+        type
+      });
+
       const response = await axios({
         method: 'GET',
-        url,
+        url: encodedUrl,
         responseType: 'stream',
         timeout: 300000, // 5 minutes timeout
         headers: {
@@ -318,6 +328,28 @@ export class FFmpegService {
           error: error instanceof Error ? error.message : 'Unknown error'
         });
       }
+    }
+  }
+
+  private encodeUrlForAxios(url: string): string {
+    try {
+      const urlObj = new URL(url);
+
+      // Split path into segments and encode each one separately
+      const pathSegments = urlObj.pathname.split('/').map(segment =>
+        segment ? encodeURIComponent(segment) : segment
+      );
+
+      // Reconstruct the URL with encoded path
+      urlObj.pathname = pathSegments.join('/');
+
+      return urlObj.toString();
+    } catch (error) {
+      logger.warn('Failed to parse URL, using as-is', {
+        url,
+        error: error instanceof Error ? error.message : 'Unknown error'
+      });
+      return url;
     }
   }
 
