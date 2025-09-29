@@ -708,15 +708,7 @@ export class FFmpegService {
       `scale=${upscaleWidth}:${upscaleHeight}:flags=lanczos`,
 
       // Step 2: Apply zoom with smooth movement
-      [
-        'zoompan',
-        `z='min(${zoomStart}+${zoomDifference}*on/${totalFrames}, ${zoomEnd})'`, // Smooth zoom formula
-        `d=${totalFrames}`, // Duration in frames
-        `x='trunc(iw/2-(iw/zoom/2))'`, // Center X with trunc for consistency
-        `y='trunc(ih/2-(ih/zoom/2))'`, // Center Y with trunc for consistency
-        `s=1920x1080`, // Final output resolution
-        `fps=${frameRate}` // Output frame rate
-      ].join(':'),
+      `zoompan=z='min(${zoomStart}+${zoomDifference}*on/${totalFrames}, ${zoomEnd})':d=${totalFrames}:x='trunc(iw/2-(iw/zoom/2))':y='trunc(ih/2-(ih/zoom/2))':s=1920x1080:fps=${frameRate}`,
 
       // Step 3: Ensure proper pixel format for compatibility
       'format=yuv420p'
