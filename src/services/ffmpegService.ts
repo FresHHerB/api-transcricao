@@ -335,6 +335,11 @@ export class FFmpegService {
     try {
       const urlObj = new URL(url);
 
+      // Force HTTP for internal MinIO URLs (port 9000)
+      if (urlObj.hostname === 'minio' && urlObj.port === '9000') {
+        urlObj.protocol = 'http:';
+      }
+
       // Split path into segments and encode each one separately
       const pathSegments = urlObj.pathname.split('/').map(segment =>
         segment ? encodeURIComponent(segment) : segment
@@ -343,7 +348,17 @@ export class FFmpegService {
       // Reconstruct the URL with encoded path
       urlObj.pathname = pathSegments.join('/');
 
-      return urlObj.toString();
+      const finalUrl = urlObj.toString();
+
+      logger.debug('URL encoding completed', {
+        originalUrl: url,
+        finalUrl,
+        protocol: urlObj.protocol,
+        hostname: urlObj.hostname,
+        port: urlObj.port
+      });
+
+      return finalUrl;
     } catch (error) {
       logger.warn('Failed to parse URL, using as-is', {
         url,
