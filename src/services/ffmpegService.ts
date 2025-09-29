@@ -217,11 +217,70 @@ export class FFmpegService {
     }
   }
 
+  private async getVideoMetadata(
+    videoPath: string,
+    requestId: string
+  ): Promise<{ duration: number | null; totalFrames: number | null }> {
+    return new Promise((resolve) => {
+      const ffprobe = spawn('ffprobe', [
+        '-v', 'quiet',
+        '-print_format', 'json',
+        '-show_format',
+        '-show_streams',
+        videoPath
+      ]);
+
+      let output = '';
+
+      ffprobe.stdout.on('data', (data) => {
+        output += data.toString();
+      });
+
+      ffprobe.on('close', (code) => {
+        if (code === 0) {
+          try {
+            const metadata = JSON.parse(output);
+            const videoStream = metadata.streams?.find((s: any) => s.codec_type === 'video');
+
+            const duration = parseFloat(metadata.format?.duration || '0') || null;
+            const frameRate = videoStream ? parseFloat(videoStream.r_frame_rate?.split('/')[0] || '0') / parseFloat(videoStream.r_frame_rate?.split('/')[1] || '1') : null;
+            const totalFrames = duration && frameRate ? Math.round(duration * frameRate) : null;
+
+            logger.info('📊 Video metadata extracted', {
+              requestId,
+              duration: duration ? `${duration}s` : 'unknown',
+              totalFrames,
+              frameRate: frameRate ? `${frameRate.toFixed(2)}fps` : 'unknown',
+              resolution: videoStream ? `${videoStream.width}x${videoStream.height}` : 'unknown'
+            });
+
+            resolve({ duration, totalFrames });
+          } catch (error) {
+            logger.warn('⚠️ Failed to parse video metadata', {
+              requestId,
+              error: error instanceof Error ? error.message : 'Unknown error'
+            });
+            resolve({ duration: null, totalFrames: null });
+          }
+        } else {
+          logger.warn('⚠️ FFprobe failed, proceeding without metadata', {
+            requestId,
+            exitCode: code
+          });
+          resolve({ duration: null, totalFrames: null });
+        }
+      });
+    });
+  }
+
   private async processVideoWithFFmpeg(
     videoPath: string,
     srtPath: string,
     requestId: string
   ): Promise<string> {
+    // Get video metadata first for progress calculation
+    const metadata = await this.getVideoMetadata(videoPath, requestId);
+
     const outputFilename = `${requestId}_captioned_${Date.now()}.mp4`;
     const outputPath = join(this.outputDir, outputFilename);
 
@@ -247,7 +306,11 @@ export class FFmpegService {
       command: ffmpegCommand,
       inputVideo: videoPath,
       inputSrt: srtPath,
-      outputPath
+      outputPath,
+      videoMetadata: {
+        duration: metadata.duration ? `${metadata.duration}s` : 'unknown',
+        totalFrames: metadata.totalFrames || 'unknown'
+      }
     });
 
     return new Promise((resolve, reject) => {
@@ -263,14 +326,65 @@ export class FFmpegService {
       ffmpeg.stderr.on('data', (data) => {
         stderr += data.toString();
 
-        // Log progress information
-        if (data.toString().includes('time=')) {
-          const timeMatch = data.toString().match(/time=(\d{2}:\d{2}:\d{2}\.\d{2})/);
+        // Enhanced progress logging with detailed metrics
+        const output = data.toString();
+
+        // Parse FFmpeg progress line
+        if (output.includes('frame=') && output.includes('time=')) {
+          const frameMatch = output.match(/frame=\s*(\d+)/);
+          const fpsMatch = output.match(/fps=\s*([\d.]+)/);
+          const qMatch = output.match(/q=\s*([\d.-]+)/);
+          const sizeMatch = output.match(/size=\s*(\d+)kB/);
+          const timeMatch = output.match(/time=(\d{2}:\d{2}:\d{2}\.\d{2})/);
+          const bitrateMatch = output.match(/bitrate=\s*([\d.]+)kbits\/s/);
+          const speedMatch = output.match(/speed=\s*([\d.]+)x/);
+
           if (timeMatch) {
-            logger.debug('⏳ FFmpeg progress', {
+            // Calculate progress percentage if we have video duration
+            let progressPercentage: number | null = null;
+            let estimatedTimeRemaining: string | null = null;
+
+            if (metadata.duration) {
+              // Convert current time to seconds
+              const timeParts = timeMatch[1].split(':');
+              const currentSeconds = parseInt(timeParts[0]) * 3600 + parseInt(timeParts[1]) * 60 + parseFloat(timeParts[2]);
+
+              progressPercentage = Math.min(Math.round((currentSeconds / metadata.duration) * 100), 100);
+
+              // Estimate time remaining based on processing speed
+              if (speedMatch && progressPercentage > 0) {
+                const processingSpeed = parseFloat(speedMatch[1]);
+                const remainingSeconds = metadata.duration - currentSeconds;
+                const estimatedSecondsRemaining = remainingSeconds / processingSpeed;
+
+                const minutes = Math.floor(estimatedSecondsRemaining / 60);
+                const seconds = Math.round(estimatedSecondsRemaining % 60);
+                estimatedTimeRemaining = `${minutes}m ${seconds}s`;
+              }
+            }
+
+            const progressInfo = {
               requestId,
-              currentTime: timeMatch[1]
-            });
+              frame: frameMatch ? parseInt(frameMatch[1]) : null,
+              totalFrames: metadata.totalFrames,
+              fps: fpsMatch ? parseFloat(fpsMatch[1]) : null,
+              quality: qMatch ? parseFloat(qMatch[1]) : null,
+              sizeKB: sizeMatch ? parseInt(sizeMatch[1]) : null,
+              currentTime: timeMatch[1],
+              totalDuration: metadata.duration ? `${Math.round(metadata.duration)}s` : null,
+              progressPercentage,
+              bitrate: bitrateMatch ? `${bitrateMatch[1]}kbits/s` : null,
+              speed: speedMatch ? `${speedMatch[1]}x` : null,
+              estimatedTimeRemaining,
+              phase: 'FFMPEG_PROGRESS'
+            };
+
+            // Use different log level based on progress intervals
+            if (progressPercentage && progressPercentage % 10 === 0) {
+              logger.info(`🎬 FFmpeg Progress ${progressPercentage}%`, progressInfo);
+            } else {
+              logger.debug('🎬 FFmpeg Processing Progress', progressInfo);
+            }
           }
         }
       });
