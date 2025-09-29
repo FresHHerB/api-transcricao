@@ -10,8 +10,20 @@ const router = Router();
 const ffmpegService = new FFmpegService();
 
 const captionRequestSchema = Joi.object({
-  url_video: Joi.string().uri().required(),
-  url_srt: Joi.string().uri().required()
+  url_video: Joi.string().min(1).required().custom((value, helpers) => {
+    // Allow internal MinIO URLs and standard URLs
+    if (value.startsWith('http://') || value.startsWith('https://')) {
+      return value;
+    }
+    return helpers.error('any.invalid');
+  }, 'URL validation'),
+  url_srt: Joi.string().min(1).required().custom((value, helpers) => {
+    // Allow internal MinIO URLs and standard URLs
+    if (value.startsWith('http://') || value.startsWith('https://')) {
+      return value;
+    }
+    return helpers.error('any.invalid');
+  }, 'URL validation')
 });
 
 router.post('/caption',
