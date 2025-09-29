@@ -342,10 +342,22 @@ export class FFmpegService {
       }
 
       // Split path into segments and encode each one separately
+      // But first check if segments are already encoded to avoid double encoding
       const originalPathSegments = urlObj.pathname.split('/');
-      const pathSegments = originalPathSegments.map(segment =>
-        segment ? encodeURIComponent(segment) : segment
-      );
+      const pathSegments = originalPathSegments.map(segment => {
+        if (!segment) return segment;
+
+        // Check if segment is already URL encoded by looking for % followed by hex digits
+        const isAlreadyEncoded = /%[0-9A-Fa-f]{2}/.test(segment);
+
+        if (isAlreadyEncoded) {
+          // Already encoded, don't encode again
+          return segment;
+        } else {
+          // Not encoded, apply encoding
+          return encodeURIComponent(segment);
+        }
+      });
 
       // Reconstruct the URL with encoded path
       urlObj.pathname = pathSegments.join('/');
@@ -359,7 +371,11 @@ export class FFmpegService {
         hostname: urlObj.hostname,
         port: urlObj.port,
         originalPathSegments,
-        encodedPathSegments: pathSegments
+        encodedPathSegments: pathSegments,
+        encodingAnalysis: originalPathSegments.map(segment => ({
+          segment,
+          wasAlreadyEncoded: segment ? /%[0-9A-Fa-f]{2}/.test(segment) : false
+        }))
       });
 
       return finalUrl;
