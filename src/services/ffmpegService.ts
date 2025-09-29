@@ -133,11 +133,12 @@ export class FFmpegService {
       // Encode URL properly for axios
       const encodedUrl = this.encodeUrlForAxios(url);
 
-      logger.debug(`📥 Downloading ${type} file`, {
+      logger.info(`📥 Attempting to download ${type} file`, {
         requestId,
         originalUrl: url,
         encodedUrl,
-        type
+        type,
+        phase: `${type.toUpperCase()}_DOWNLOAD_ATTEMPT`
       });
 
       const response = await axios({
