@@ -1,6 +1,6 @@
 # API Transcrição
 
-A comprehensive API for audio transcription, AI-powered image generation, and video captioning. Built for production deployment with robust processing pipelines and high-performance capabilities.
+A comprehensive API for audio transcription, AI-powered image generation, and video processing. Built for production deployment with robust processing pipelines and high-performance capabilities.
 
 ## Features
 
@@ -16,9 +16,10 @@ A comprehensive API for audio transcription, AI-powered image generation, and vi
 - **Runware WebSocket**: High-quality image generation
 - **Batch Processing**: Efficient concurrent image generation
 
-### 🎬 **Video Captioning**
+### 🎬 **Video Processing**
+- **Caption Integration**: Add SRT subtitles to videos
+- **Image to Video**: Convert images to videos with zoom effects
 - **FFmpeg Integration**: Professional video processing
-- **SRT Subtitle Support**: Standard subtitle format integration
 - **Quality Control**: Automatic video validation and optimization
 
 ### 🔧 **Core Features**
@@ -74,23 +75,58 @@ docker run -p 3000:3000 --env-file .env api-transcricao
 
 **POST** `/transcribe`
 
+Transcribe audio files to text with multiple output formats.
+
 **Headers:**
-- `X-API-Key: YOUR_API_KEY`
-- `Content-Type: multipart/form-data`
+```
+X-API-Key: YOUR_API_KEY
+Content-Type: multipart/form-data
+```
 
-**Body:**
-- `audio` (file): Audio file (mp3, wav, m4a, ogg, flac, aac)
-- `speed` (optional): Processing speed factor (1-3, default: 2)
-- `format` (optional): Output format (json, srt, txt, default: json)
+**Payload:**
+```
+audio (file): Audio file (mp3, wav, m4a, ogg, flac, aac)
+speed (optional): Processing speed factor (1-3, default: 2)
+format (optional): Output format (json, srt, txt, default: json)
+```
 
-**Example:**
+**cURL Example:**
 ```bash
-curl -X POST http://localhost:3334/transcribe \
+curl -X POST http://localhost:3000/transcribe \
   -H "X-API-Key: YOUR_API_KEY" \
-  -F "audio=@audio.mp3" \
+  -F "audio=@/path/to/audio.mp3" \
   -F "speed=2" \
   -F "format=json"
 ```
+
+**Response:**
+```json
+{
+  "job": {
+    "id": "transcription-uuid",
+    "status": "completed",
+    "speedFactor": 2.0,
+    "sourceDurationS": 1234.5
+  },
+  "transcript": {
+    "segments": [
+      {
+        "index": 1,
+        "start": 0.0,
+        "end": 3.42,
+        "text": "Hello world"
+      }
+    ],
+    "fullText": "Complete transcription...",
+    "formats": {
+      "srtPath": "/output/job-id/transcription.srt",
+      "txtPath": "/output/job-id/transcription.txt"
+    }
+  }
+}
+```
+
+---
 
 ### 🎨 AI Image Generation
 
@@ -98,11 +134,15 @@ curl -X POST http://localhost:3334/transcribe \
 
 **POST** `/gerarPrompts`
 
-**Headers:**
-- `X-API-Key: YOUR_API_KEY`
-- `Content-Type: application/json`
+Generate AI-enhanced prompts for image generation.
 
-**Body:**
+**Headers:**
+```
+X-API-Key: YOUR_API_KEY
+Content-Type: application/json
+```
+
+**Payload:**
 ```json
 {
   "cenas": [
@@ -114,8 +154,27 @@ curl -X POST http://localhost:3334/transcribe \
   "estilo": "Visual style description",
   "detalhe_estilo": "Detailed style specifications",
   "roteiro": "Full script/scenario",
-  "agente": "System prompt for prompt generation"
+  "agente": "System prompt for AI generation"
 }
+```
+
+**cURL Example:**
+```bash
+curl -X POST http://localhost:3000/gerarPrompts \
+  -H "X-API-Key: YOUR_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "cenas": [
+      {
+        "index": 0,
+        "texto": "A futuristic city with flying cars"
+      }
+    ],
+    "estilo": "Cyberpunk, neon lights, dark atmosphere",
+    "detalhe_estilo": "High contrast, vibrant colors, cinematic composition",
+    "roteiro": "A short film about a dystopian future",
+    "agente": "You are an expert in visual storytelling and cinematography"
+  }'
 ```
 
 **Response:**
@@ -126,7 +185,7 @@ curl -X POST http://localhost:3334/transcribe \
   "prompts": [
     {
       "index": 0,
-      "prompt": "Enhanced AI-generated prompt"
+      "prompt": "Cyberpunk futuristic city with flying cars, neon lights illuminating dark streets, high contrast vibrant colors, cinematic wide angle composition..."
     }
   ],
   "execution": {
@@ -147,11 +206,15 @@ curl -X POST http://localhost:3334/transcribe \
 
 **POST** `/gerarImagens`
 
-**Headers:**
-- `X-API-Key: YOUR_API_KEY`
-- `Content-Type: application/json`
+Generate images from AI-enhanced prompts.
 
-**Body:**
+**Headers:**
+```
+X-API-Key: YOUR_API_KEY
+Content-Type: application/json
+```
+
+**Payload:**
 ```json
 {
   "prompts": [
@@ -160,10 +223,28 @@ curl -X POST http://localhost:3334/transcribe \
       "prompt": "Enhanced AI-generated prompt from previous step"
     }
   ],
-  "image_model": "runware:101",
+  "image_model": "runware:101@1",
   "altura": 1024,
   "largura": 1024
 }
+```
+
+**cURL Example:**
+```bash
+curl -X POST http://localhost:3000/gerarImagens \
+  -H "X-API-Key: YOUR_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "prompts": [
+      {
+        "index": 0,
+        "prompt": "Cyberpunk futuristic city with flying cars, neon lights..."
+      }
+    ],
+    "image_model": "runware:101@1",
+    "altura": 1024,
+    "largura": 1024
+  }'
 ```
 
 **Response:**
@@ -174,8 +255,8 @@ curl -X POST http://localhost:3334/transcribe \
   "images": [
     {
       "index": 0,
-      "imageURL": "https://cdn.runware.ai/image-url",
-      "prompt": "Enhanced AI-generated prompt"
+      "imageURL": "https://im.runware.ai/image/ws/0.5/ii/abc123.jpg",
+      "prompt": "Cyberpunk futuristic city with flying cars..."
     }
   ],
   "execution": {
@@ -192,15 +273,23 @@ curl -X POST http://localhost:3334/transcribe \
 }
 ```
 
-### 🎬 Video Captioning
+---
 
-**POST** `/caption`
+### 🎬 Video Processing
+
+#### Add Captions to Video
+
+**POST** `/video/caption`
+
+Add SRT subtitles to video files.
 
 **Headers:**
-- `X-API-Key: YOUR_API_KEY`
-- `Content-Type: application/json`
+```
+X-API-Key: YOUR_API_KEY
+Content-Type: application/json
+```
 
-**Body:**
+**Payload:**
 ```json
 {
   "url_video": "https://example.com/video.mp4",
@@ -208,9 +297,9 @@ curl -X POST http://localhost:3334/transcribe \
 }
 ```
 
-**Example:**
+**cURL Example:**
 ```bash
-curl -X POST http://localhost:3334/caption \
+curl -X POST http://localhost:3000/video/caption \
   -H "X-API-Key: YOUR_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
@@ -219,13 +308,140 @@ curl -X POST http://localhost:3334/caption \
   }'
 ```
 
+**Response:**
+```json
+{
+  "code": 200,
+  "message": "Video caption added successfully",
+  "video_url": "http://localhost:3000/output/captioned-video-123.mp4",
+  "execution": {
+    "startTime": "2024-01-01T00:00:00.000Z",
+    "endTime": "2024-01-01T00:02:30.000Z",
+    "durationMs": 150000,
+    "durationSeconds": 150.0
+  },
+  "stats": {
+    "inputVideoSize": 52428800,
+    "outputVideoSize": 54525952,
+    "compressionRatio": "104.0%"
+  }
+}
+```
+
+#### Convert Image to Video
+
+**POST** `/video/img2vid`
+
+Convert image to video with zoom effect.
+
+**Headers:**
+```
+X-API-Key: YOUR_API_KEY
+Content-Type: application/json
+```
+
+**Payload:**
+```json
+{
+  "url_image": "https://example.com/image.jpg",
+  "frame_rate": 24,
+  "duration": 5.0
+}
+```
+
+**cURL Example:**
+```bash
+curl -X POST http://localhost:3000/video/img2vid \
+  -H "X-API-Key: YOUR_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "url_image": "https://example.com/image.jpg",
+    "frame_rate": 24,
+    "duration": 5.0
+  }'
+```
+
+**Response:**
+```json
+{
+  "code": 200,
+  "message": "Image to video conversion completed successfully",
+  "video_url": "http://localhost:3000/output/img2vid-123.mp4",
+  "execution": {
+    "startTime": "2024-01-01T00:00:00.000Z",
+    "endTime": "2024-01-01T00:00:10.000Z",
+    "durationMs": 10000,
+    "durationSeconds": 10.0
+  },
+  "stats": {
+    "outputVideoSize": 2097152,
+    "inputImage": "https://example.com/image.jpg",
+    "frameRate": 24,
+    "videoDuration": 5.0,
+    "zoomFactor": "1.0 → 1.324"
+  }
+}
+```
+
+---
+
 ### 🔧 System Endpoints
 
-**GET** `/health` - Server health status
-**GET** `/caption/health` - Caption service health
-**GET** `/status/:jobId` - Job status check
-**GET** `/output/:jobId/:filename` - Download processed files
-**GET** `/` - API documentation and endpoint list
+#### Health Check
+
+**GET** `/health`
+
+Server health status.
+
+**cURL Example:**
+```bash
+curl http://localhost:3000/health
+```
+
+#### Video Health Check
+
+**GET** `/video/health`
+
+Video processing service health.
+
+**cURL Example:**
+```bash
+curl http://localhost:3000/video/health
+```
+
+#### Job Status
+
+**GET** `/status/:jobId`
+
+Check transcription job status.
+
+**cURL Example:**
+```bash
+curl -H "X-API-Key: YOUR_API_KEY" \
+  http://localhost:3000/status/job-123
+```
+
+#### Download Files
+
+**GET** `/output/:filename`
+
+Download generated files.
+
+**cURL Example:**
+```bash
+curl -O http://localhost:3000/output/transcription-123.srt
+```
+
+#### API Documentation
+
+**GET** `/`
+
+Full API documentation and endpoint list.
+
+**cURL Example:**
+```bash
+curl http://localhost:3000/
+```
 
 ## Configuration
 
@@ -272,26 +488,26 @@ curl -X POST http://localhost:3334/caption \
 3. **Batch Processing**: Concurrent processing with smart throttling
 4. **Quality Assurance**: Automatic validation and retry logic
 
-#### 🎬 Video Captioning Pipeline
-1. **Input Validation**: Validates video and subtitle URLs
-2. **File Processing**: Downloads and validates media files
-3. **Caption Integration**: Merges subtitles with video using FFmpeg
-4. **Quality Control**: Ensures output meets specifications
+#### 🎬 Video Processing Pipeline
+1. **Caption Integration**: Validates and downloads video/SRT files, merges subtitles using FFmpeg
+2. **Image to Video**: Downloads image, applies zoom effect, generates video with configurable duration and frame rate
 
 ### Directory Structure
 
 ```
 ├── src/
 │   ├── config/          # Configuration management
-│   ├── middleware/      # Express middlewares
+│   ├── middleware/      # Express middlewares (auth, upload)
 │   ├── routes/          # API route handlers
 │   │   ├── transcription.ts    # Audio transcription
-│   │   ├── imageGeneration.ts  # Image generation
-│   │   └── caption.ts          # Video captioning
+│   │   ├── imageGeneration.ts  # Prompt & image generation
+│   │   └── video.ts            # Video processing (caption, img2vid)
 │   ├── services/        # Business logic services
-│   │   ├── openRouterService.ts    # AI prompt generation
+│   │   ├── transcriptionService.ts     # Audio processing
+│   │   ├── openRouterService.ts        # AI prompt generation
 │   │   ├── runwareWebSocketService.ts  # Image generation
-│   │   └── cleanupService.ts       # File cleanup
+│   │   ├── ffmpegService.ts            # Video processing
+│   │   └── cleanupService.ts           # Auto cleanup
 │   ├── types/           # TypeScript definitions
 │   └── utils/           # Shared utilities
 ├── temp/                # Temporary processing files
@@ -373,60 +589,20 @@ docker run -d \
 - **Helmet Integration**: Security headers and protection
 - **CORS Configuration**: Configurable cross-origin policies
 
-## API Response Examples
+## Quick Reference - All Endpoints
 
-### Transcription Response
-```json
-{
-  "job": {
-    "id": "transcription-uuid",
-    "status": "completed",
-    "speedFactor": 2.0,
-    "sourceDurationS": 1234.5,
-    "metrics": {
-      "segments": 150,
-      "characters": 12000,
-      "wallTimeS": 45.2
-    }
-  },
-  "transcript": {
-    "segments": [
-      {
-        "index": 1,
-        "start": 0.0,
-        "end": 3.42,
-        "text": "Hello world"
-      }
-    ],
-    "fullText": "Hello world...",
-    "formats": {
-      "srtPath": "/output/job-id/transcription.srt",
-      "txtPath": "/output/job-id/transcription.txt"
-    }
-  }
-}
-```
-
-### Caption Response
-```json
-{
-  "code": 200,
-  "message": "Video caption added successfully",
-  "video_url": "https://cdn.example.com/captioned-video.mp4",
-  "execution": {
-    "startTime": "2024-01-01T00:00:00.000Z",
-    "endTime": "2024-01-01T00:02:30.000Z",
-    "durationMs": 150000,
-    "durationSeconds": 150.0
-  },
-  "stats": {
-    "inputVideoSize": 52428800,
-    "outputVideoSize": 54525952,
-    "compressionRatio": "104.0%",
-    "ffmpegCommand": "ffmpeg -i input.mp4 -vf subtitles=input.srt output.mp4"
-  }
-}
-```
+| Endpoint | Method | Description | Auth Required |
+|----------|--------|-------------|---------------|
+| `/transcribe` | POST | Transcribe audio to text | ✅ |
+| `/gerarPrompts` | POST | Generate AI prompts | ✅ |
+| `/gerarImagens` | POST | Generate images from prompts | ✅ |
+| `/video/caption` | POST | Add SRT captions to video | ✅ |
+| `/video/img2vid` | POST | Convert image to video | ✅ |
+| `/health` | GET | Server health status | ❌ |
+| `/video/health` | GET | Video service health | ❌ |
+| `/status/:jobId` | GET | Check job status | ✅ |
+| `/output/:filename` | GET | Download output files | ❌ |
+| `/` | GET | API documentation | ❌ |
 
 ## Support
 
