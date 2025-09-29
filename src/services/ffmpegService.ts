@@ -249,6 +249,7 @@ export class FFmpegService {
             logger.info('📊 Video metadata extracted', {
               requestId,
               duration: duration ? `${duration}s` : 'unknown',
+              durationSeconds: duration,
               totalFrames,
               frameRate: frameRate ? `${frameRate.toFixed(2)}fps` : 'unknown',
               resolution: videoStream ? `${videoStream.width}x${videoStream.height}` : 'unknown'
@@ -340,15 +341,15 @@ export class FFmpegService {
           const speedMatch = output.match(/speed=\s*([\d.]+)x/);
 
           if (timeMatch) {
+            // Convert current time to seconds
+            const timeParts = timeMatch[1].split(':');
+            const currentSeconds = parseInt(timeParts[0]) * 3600 + parseInt(timeParts[1]) * 60 + parseFloat(timeParts[2]);
+
             // Calculate progress percentage if we have video duration
             let progressPercentage: number | null = null;
             let estimatedTimeRemaining: string | null = null;
 
-            if (metadata.duration) {
-              // Convert current time to seconds
-              const timeParts = timeMatch[1].split(':');
-              const currentSeconds = parseInt(timeParts[0]) * 3600 + parseInt(timeParts[1]) * 60 + parseFloat(timeParts[2]);
-
+            if (metadata.duration && metadata.duration > 0) {
               progressPercentage = Math.min(Math.round((currentSeconds / metadata.duration) * 100), 100);
 
               // Estimate time remaining based on processing speed
@@ -363,14 +364,20 @@ export class FFmpegService {
               }
             }
 
+            const currentFrame = frameMatch ? parseInt(frameMatch[1]) : null;
+            const totalFrames = metadata.totalFrames;
+            const frameProgressPercentage = currentFrame && totalFrames ? Math.round((currentFrame / totalFrames) * 100) : null;
+
             const progressInfo = {
               requestId,
-              frame: frameMatch ? parseInt(frameMatch[1]) : null,
-              totalFrames: metadata.totalFrames,
+              frame: currentFrame,
+              totalFrames,
+              frameProgress: frameProgressPercentage ? `${frameProgressPercentage}%` : null,
               fps: fpsMatch ? parseFloat(fpsMatch[1]) : null,
               quality: qMatch ? parseFloat(qMatch[1]) : null,
               sizeKB: sizeMatch ? parseInt(sizeMatch[1]) : null,
               currentTime: timeMatch[1],
+              currentSeconds: Math.round(currentSeconds * 100) / 100,
               totalDuration: metadata.duration ? `${Math.round(metadata.duration)}s` : null,
               progressPercentage,
               bitrate: bitrateMatch ? `${bitrateMatch[1]}kbits/s` : null,
@@ -379,9 +386,15 @@ export class FFmpegService {
               phase: 'FFMPEG_PROGRESS'
             };
 
-            // Use different log level based on progress intervals
-            if (progressPercentage && progressPercentage % 10 === 0) {
-              logger.info(`🎬 FFmpeg Progress ${progressPercentage}%`, progressInfo);
+            // Show progress info more frequently and always visible
+            const shouldShowDetailedLog = !progressPercentage || progressPercentage % 5 === 0 ||
+                                        (currentFrame && currentFrame % 100 === 0);
+
+            if (shouldShowDetailedLog) {
+              const progressDisplay = progressPercentage ? `${progressPercentage}%` :
+                                    frameProgressPercentage ? `${frameProgressPercentage}% (frames)` :
+                                    'processing...';
+              logger.info(`🎬 FFmpeg Progress: ${progressDisplay}`, progressInfo);
             } else {
               logger.debug('🎬 FFmpeg Processing Progress', progressInfo);
             }
