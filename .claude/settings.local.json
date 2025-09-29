@@ -16,7 +16,8 @@
       "WebFetch(domain:runware.ai)",
       "WebSearch",
       "WebFetch(domain:openrouter.ai)",
-      "Bash(npm run dev:*)"
+      "Bash(npm run dev:*)",
+      "Bash(git pull:*)"
     ],
     "deny": [],
     "ask": []

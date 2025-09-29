@@ -3,6 +3,7 @@ import { authenticateToken, AuthenticatedRequest } from '../middleware/auth';
 import { logger } from '../utils/logger';
 import { CaptionRequest, CaptionResponse } from '../types';
 import { FFmpegService } from '../services/ffmpegService';
+import { cleanupService } from '../services/cleanupService';
 import Joi from 'joi';
 import { basename } from 'path';
 
@@ -191,11 +192,13 @@ router.post('/caption',
 router.get('/caption/health', async (req: Request, res: Response) => {
   try {
     const healthCheck = await ffmpegService.healthCheck();
+    const cleanupStatus = cleanupService.getCleanupStatus();
 
     res.json({
       service: 'Caption Service',
       status: healthCheck.ffmpegAvailable ? 'healthy' : 'unhealthy',
       ffmpeg: healthCheck,
+      cleanup: cleanupStatus,
       timestamp: new Date().toISOString()
     });
   } catch (error) {
@@ -203,6 +206,36 @@ router.get('/caption/health', async (req: Request, res: Response) => {
       service: 'Caption Service',
       status: 'error',
       error: error instanceof Error ? error.message : 'Unknown error',
+      timestamp: new Date().toISOString()
+    });
+  }
+});
+
+// Manual cleanup endpoint
+router.post('/caption/cleanup', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    logger.info('🧹 Manual cleanup requested', {
+      ip: req.ip,
+      userAgent: req.get('User-Agent')?.substring(0, 50) + '...'
+    });
+
+    await cleanupService.manualCleanup();
+
+    res.json({
+      success: true,
+      message: 'Manual cleanup completed successfully',
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    logger.error('❌ Manual cleanup failed', {
+      error: error instanceof Error ? error.message : 'Unknown error',
+      ip: req.ip
+    });
+
+    res.status(500).json({
+      success: false,
+      error: 'Manual cleanup failed',
+      message: error instanceof Error ? error.message : 'Unknown error',
       timestamp: new Date().toISOString()
     });
   }

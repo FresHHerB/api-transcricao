@@ -352,7 +352,7 @@ export class FFmpegService {
 
       const finalUrl = urlObj.toString();
 
-      logger.info('URL encoding completed', {
+      logger.warn('🔍 URL ENCODING DEBUG', {
         originalUrl: url,
         finalUrl,
         protocol: urlObj.protocol,

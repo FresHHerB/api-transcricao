@@ -1,10 +1,14 @@
 import app from './app';
 import { config } from './config/env';
 import { logger } from './utils/logger';
+import { cleanupService } from './services/cleanupService';
 import fs from 'fs';
 
 const gracefulShutdown = (signal: string): void => {
   logger.info(`📴 Shutdown gracioso iniciado - Signal: ${signal} - Uptime: ${process.uptime().toFixed(2)}s`);
+
+  // Stop cleanup service
+  cleanupService.stopCleanupScheduler();
 
   server.close((err) => {
     if (err) {
@@ -32,7 +36,11 @@ const server = app.listen(config.port, () => {
 
   logger.info(`⚙️ Rate Limit: ${config.rateLimit.maxRequests} req/${config.rateLimit.windowMs / 60000}min`);
 
-  logger.info(`🌍 Servidor pronto em http://localhost:${config.port} - Endpoints: POST /generateImage, POST /transcribe, GET /health, GET /status/:jobId`);
+  logger.info(`🌍 Servidor pronto em http://localhost:${config.port} - Endpoints: POST /generateImage, POST /transcribe, POST /caption, GET /health, GET /status/:jobId`);
+
+  // Log cleanup service status
+  const cleanupStatus = cleanupService.getCleanupStatus();
+  logger.info(`🧹 Cleanup Service: ${cleanupStatus.isRunning ? 'Ativo' : 'Inativo'} - Max Age: ${cleanupStatus.maxAgeHours}h - Interval: ${cleanupStatus.intervalHours}h`);
 });
 
 process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
