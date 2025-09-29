@@ -43,7 +43,7 @@ app.use(cors({
 //   standardHeaders: true,
 //   legacyHeaders: false,
 //   skip: (req) => {
-//     return req.path === '/health' || req.path === '/generateImage';
+//     return req.path === '/health' || req.path === '/gerarPrompts' || req.path === '/gerarImagens';
 //   }
 // });
 
@@ -119,7 +119,8 @@ app.get('/', (req, res) => {
     timestamp: new Date().toISOString(),
     endpoints: {
       transcribe: 'POST /transcribe',
-      generateImage: 'POST /generateImage',
+      gerarPrompts: 'POST /gerarPrompts',
+      gerarImagens: 'POST /gerarImagens',
       caption: 'POST /caption',
       health: 'GET /health',
       captionHealth: 'GET /caption/health',
@@ -140,22 +141,33 @@ app.get('/', (req, res) => {
           format: 'Optional: Output format (json, srt, txt, default: json)'
         }
       },
-      generateImage: {
+      gerarPrompts: {
         method: 'POST',
-        path: '/generateImage',
+        path: '/gerarPrompts',
         headers: {
           'X-API-Key': 'YOUR_API_KEY',
           'Content-Type': 'application/json'
         },
         body: {
           cenas: 'Array of scenes with index and texto',
-          image_model: 'Runware model ID for image generation',
-          altura: 'Image height (512-2048)',
-          largura: 'Image width (512-2048)',
           estilo: 'Visual style description',
           detalhe_estilo: 'Detailed style specifications',
           roteiro: 'Full script/scenario',
           agente: 'System prompt for prompt generation'
+        }
+      },
+      gerarImagens: {
+        method: 'POST',
+        path: '/gerarImagens',
+        headers: {
+          'X-API-Key': 'YOUR_API_KEY',
+          'Content-Type': 'application/json'
+        },
+        body: {
+          prompts: 'Array of prompts with index and prompt text',
+          image_model: 'Runware model ID for image generation',
+          altura: 'Image height (512-2048)',
+          largura: 'Image width (512-2048)'
         }
       },
       caption: {
@@ -180,7 +192,8 @@ app.use('*', (req, res) => {
     message: `Route ${req.method} ${req.originalUrl} not found`,
     availableEndpoints: [
       'POST /transcribe',
-      'POST /generateImage',
+      'POST /gerarPrompts',
+      'POST /gerarImagens',
       'POST /caption',
       'GET /health',
       'GET /caption/health',

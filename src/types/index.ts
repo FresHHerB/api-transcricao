@@ -205,6 +205,61 @@ export interface GenerateImageResponse {
   };
 }
 
+// New separate endpoint types
+export interface PromptData {
+  index: number;
+  prompt: string;
+}
+
+export interface GerarPromptsRequest {
+  cenas: SceneData[];
+  estilo: string;
+  detalhe_estilo: string;
+  roteiro: string;
+  agente: string;
+}
+
+export interface GerarPromptsResponse {
+  code: number;
+  message: string;
+  prompts: PromptData[];
+  execution: {
+    startTime: string;
+    endTime: string;
+    durationMs: number;
+    durationSeconds: number;
+  };
+  stats: {
+    totalScenes: number;
+    promptsGenerated: number;
+    successRate: string;
+  };
+}
+
+export interface GerarImagensRequest {
+  prompts: PromptData[];
+  image_model: string;
+  altura: number;
+  largura: number;
+}
+
+export interface GerarImagensResponse {
+  code: number;
+  message: string;
+  images: GeneratedImageData[];
+  execution: {
+    startTime: string;
+    endTime: string;
+    durationMs: number;
+    durationSeconds: number;
+  };
+  stats: {
+    totalPrompts: number;
+    imagesGenerated: number;
+    successRate: string;
+  };
+}
+
 // Video Caption Types
 export interface CaptionRequest {
   url_video: string;

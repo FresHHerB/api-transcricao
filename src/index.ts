@@ -4,7 +4,7 @@ import { logger } from './utils/logger';
 import { cleanupService } from './services/cleanupService';
 import fs from 'fs';
 
-const gracefulShutdown = (signal: string): void => {
+const gracefulShutdown = async (signal: string): Promise<void> => {
   logger.info(`📴 Shutdown gracioso iniciado - Signal: ${signal} - Uptime: ${process.uptime().toFixed(2)}s`);
 
   // Stop cleanup service
@@ -27,7 +27,7 @@ const gracefulShutdown = (signal: string): void => {
   });
 };
 
-const server = app.listen(config.port, () => {
+const server = app.listen(config.port, '0.0.0.0', () => {
   logger.info(`🚀 API Transcrição iniciada - Port:${config.port} Env:${config.nodeEnv} PID:${process.pid}`);
 
   logger.info(`⚙️ Audio: ${config.audio.maxFileSizeMB}MB max, ${config.audio.speedFactor}x speed - apenas aceleração`);
@@ -36,7 +36,7 @@ const server = app.listen(config.port, () => {
 
   logger.info(`⚙️ Rate Limit: ${config.rateLimit.maxRequests} req/${config.rateLimit.windowMs / 60000}min`);
 
-  logger.info(`🌍 Servidor pronto em http://localhost:${config.port} - Endpoints: POST /generateImage, POST /transcribe, POST /caption, GET /health, GET /status/:jobId`);
+  logger.info(`🌍 Servidor em http://0.0.0.0:${config.port} - Endpoints: POST /gerarPrompts, POST /gerarImagens, POST /transcribe, POST /caption, GET /health, GET /status/:jobId`);
 
   // Log cleanup service status
   const cleanupStatus = cleanupService.getCleanupStatus();

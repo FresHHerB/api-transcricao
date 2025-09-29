@@ -17,7 +17,13 @@
       "WebSearch",
       "WebFetch(domain:openrouter.ai)",
       "Bash(npm run dev:*)",
-      "Bash(git pull:*)"
+      "Bash(git pull:*)",
+      "Bash(taskkill:*)",
+      "Bash(npm install)",
+      "Bash(netstat:*)",
+      "Bash(findstr:*)",
+      "Bash(cmd /c:*)",
+      "Bash(tasklist)"
     ],
     "deny": [],
     "ask": []
