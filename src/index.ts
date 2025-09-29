@@ -36,7 +36,7 @@ const server = app.listen(config.port, '0.0.0.0', () => {
 
   logger.info(`⚙️ Rate Limit: ${config.rateLimit.maxRequests} req/${config.rateLimit.windowMs / 60000}min`);
 
-  logger.info(`🌍 Servidor em http://0.0.0.0:${config.port} - Endpoints: POST /gerarPrompts, POST /gerarImagens, POST /transcribe, POST /caption, GET /health, GET /status/:jobId`);
+  logger.info(`🌍 Servidor em http://0.0.0.0:${config.port} - Endpoints: POST /gerarPrompts, POST /gerarImagens, POST /transcribe, POST /video/caption, POST /video/img2vid, GET /health, GET /status/:jobId`);
 
   // Log cleanup service status
   const cleanupStatus = cleanupService.getCleanupStatus();

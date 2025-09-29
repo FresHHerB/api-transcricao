@@ -23,7 +23,9 @@
       "Bash(netstat:*)",
       "Bash(findstr:*)",
       "Bash(cmd /c:*)",
-      "Bash(tasklist)"
+      "Bash(tasklist)",
+      "Bash(node -e \"console.log(''Port from config:'', require(''./dist/config/env'').config.port)\")",
+      "Bash(node:*)"
     ],
     "deny": [],
     "ask": []

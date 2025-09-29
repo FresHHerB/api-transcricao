@@ -7,7 +7,7 @@ import { config } from './config/env';
 import { logger } from './utils/logger';
 import transcriptionRoutes from './routes/transcription';
 import imageGenerationRoutes from './routes/imageGeneration';
-import captionRoutes from './routes/caption';
+import videoRoutes from './routes/video';
 import fs from 'fs';
 import path from 'path';
 
@@ -109,7 +109,7 @@ app.use('/output', express.static(config.directories.output, {
 
 app.use('/', transcriptionRoutes);
 app.use('/', imageGenerationRoutes);
-app.use('/', captionRoutes);
+app.use('/', videoRoutes);
 
 app.get('/', (req, res) => {
   res.json({
@@ -121,9 +121,10 @@ app.get('/', (req, res) => {
       transcribe: 'POST /transcribe',
       gerarPrompts: 'POST /gerarPrompts',
       gerarImagens: 'POST /gerarImagens',
-      caption: 'POST /caption',
+      videoCaption: 'POST /video/caption',
+      videoImg2Vid: 'POST /video/img2vid',
       health: 'GET /health',
-      captionHealth: 'GET /caption/health',
+      videoHealth: 'GET /video/health',
       status: 'GET /status/:jobId',
       files: 'GET /output/:jobId/:filename'
     },
@@ -170,9 +171,9 @@ app.get('/', (req, res) => {
           largura: 'Image width (512-2048)'
         }
       },
-      caption: {
+      videoCaption: {
         method: 'POST',
-        path: '/caption',
+        path: '/video/caption',
         headers: {
           'X-API-Key': 'YOUR_API_KEY',
           'Content-Type': 'application/json'
@@ -180,6 +181,19 @@ app.get('/', (req, res) => {
         body: {
           url_video: 'URL of the video file to add captions to',
           url_srt: 'URL of the SRT subtitle file'
+        }
+      },
+      videoImg2Vid: {
+        method: 'POST',
+        path: '/video/img2vid',
+        headers: {
+          'X-API-Key': 'YOUR_API_KEY',
+          'Content-Type': 'application/json'
+        },
+        body: {
+          url_image: 'URL of the image file to convert to video',
+          frame_rate: 'Video frame rate (1-60, default: 24)',
+          duration: 'Video duration in seconds (0.1-60)'
         }
       }
     }
@@ -194,9 +208,10 @@ app.use('*', (req, res) => {
       'POST /transcribe',
       'POST /gerarPrompts',
       'POST /gerarImagens',
-      'POST /caption',
+      'POST /video/caption',
+      'POST /video/img2vid',
       'GET /health',
-      'GET /caption/health',
+      'GET /video/health',
       'GET /status/:jobId',
       'GET /output/:jobId/:filename',
       'GET /'

@@ -283,3 +283,30 @@ export interface CaptionResponse {
     ffmpegCommand?: string;
   };
 }
+
+// Video Image-to-Video Types
+export interface Img2VidRequest {
+  url_image: string;
+  frame_rate: number;
+  duration: number;
+}
+
+export interface Img2VidResponse {
+  code: number;
+  message: string;
+  video_url: string;
+  execution: {
+    startTime: string;
+    endTime: string;
+    durationMs: number;
+    durationSeconds: number;
+  };
+  stats: {
+    inputImage?: string;
+    outputVideoSize?: number;
+    frameRate?: number;
+    videoDuration?: number;
+    zoomFactor?: string;
+    ffmpegCommand?: string;
+  };
+}
