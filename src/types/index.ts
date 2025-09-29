@@ -204,3 +204,27 @@ export interface GenerateImageResponse {
     successRate: string;
   };
 }
+
+// Video Caption Types
+export interface CaptionRequest {
+  url_video: string;
+  url_srt: string;
+}
+
+export interface CaptionResponse {
+  code: number;
+  message: string;
+  video_url: string;
+  execution: {
+    startTime: string;
+    endTime: string;
+    durationMs: number;
+    durationSeconds: number;
+  };
+  stats: {
+    inputVideoSize?: number;
+    outputVideoSize?: number;
+    compressionRatio?: string;
+    ffmpegCommand?: string;
+  };
+}

@@ -7,6 +7,7 @@ import { config } from './config/env';
 import { logger } from './utils/logger';
 import transcriptionRoutes from './routes/transcription';
 import imageGenerationRoutes from './routes/imageGeneration';
+import captionRoutes from './routes/caption';
 import fs from 'fs';
 import path from 'path';
 
@@ -108,6 +109,7 @@ app.use('/output', express.static(config.directories.output, {
 
 app.use('/', transcriptionRoutes);
 app.use('/', imageGenerationRoutes);
+app.use('/', captionRoutes);
 
 app.get('/', (req, res) => {
   res.json({
@@ -118,7 +120,9 @@ app.get('/', (req, res) => {
     endpoints: {
       transcribe: 'POST /transcribe',
       generateImage: 'POST /generateImage',
+      caption: 'POST /caption',
       health: 'GET /health',
+      captionHealth: 'GET /caption/health',
       status: 'GET /status/:jobId',
       files: 'GET /output/:jobId/:filename'
     },
@@ -153,6 +157,18 @@ app.get('/', (req, res) => {
           roteiro: 'Full script/scenario',
           agente: 'System prompt for prompt generation'
         }
+      },
+      caption: {
+        method: 'POST',
+        path: '/caption',
+        headers: {
+          'X-API-Key': 'YOUR_API_KEY',
+          'Content-Type': 'application/json'
+        },
+        body: {
+          url_video: 'URL of the video file to add captions to',
+          url_srt: 'URL of the SRT subtitle file'
+        }
       }
     }
   });
@@ -165,7 +181,9 @@ app.use('*', (req, res) => {
     availableEndpoints: [
       'POST /transcribe',
       'POST /generateImage',
+      'POST /caption',
       'GET /health',
+      'GET /caption/health',
       'GET /status/:jobId',
       'GET /output/:jobId/:filename',
       'GET /'
