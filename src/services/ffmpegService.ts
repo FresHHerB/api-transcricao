@@ -461,6 +461,7 @@ export class FFmpegService {
 
   private encodeUrlForAxios(url: string): string {
     try {
+      // Parse the URL - this automatically decodes the URL first
       const urlObj = new URL(url);
 
       // Force HTTP for internal MinIO URLs (port 9000)
@@ -469,40 +470,23 @@ export class FFmpegService {
       }
 
       // Split path into segments and encode each one separately
-      // But first check if segments are already encoded to avoid double encoding
-      const originalPathSegments = urlObj.pathname.split('/');
-      const pathSegments = originalPathSegments.map(segment => {
+      // The URL constructor already decoded the path, so we can safely encode it
+      const pathSegments = urlObj.pathname.split('/').map(segment => {
         if (!segment) return segment;
-
-        // Check if segment is already URL encoded by looking for % followed by hex digits
-        const isAlreadyEncoded = /%[0-9A-Fa-f]{2}/.test(segment);
-
-        if (isAlreadyEncoded) {
-          // Already encoded, don't encode again
-          return segment;
-        } else {
-          // Not encoded, apply encoding
-          return encodeURIComponent(segment);
-        }
+        // Always encode since URL constructor already decoded it
+        return encodeURIComponent(segment);
       });
 
-      // Reconstruct the URL with encoded path
+      // Reconstruct the URL with properly encoded path
       urlObj.pathname = pathSegments.join('/');
 
       const finalUrl = urlObj.toString();
 
-      logger.warn('🔍 URL ENCODING DEBUG', {
+      logger.debug('🔍 URL ENCODING', {
         originalUrl: url,
         finalUrl,
         protocol: urlObj.protocol,
-        hostname: urlObj.hostname,
-        port: urlObj.port,
-        originalPathSegments,
-        encodedPathSegments: pathSegments,
-        encodingAnalysis: originalPathSegments.map(segment => ({
-          segment,
-          wasAlreadyEncoded: segment ? /%[0-9A-Fa-f]{2}/.test(segment) : false
-        }))
+        hostname: urlObj.hostname
       });
 
       return finalUrl;

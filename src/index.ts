@@ -2,10 +2,14 @@ import app from './app';
 import { config } from './config/env';
 import { logger } from './utils/logger';
 import { cleanupService } from './services/cleanupService';
+import { tunnelService } from './services/tunnelService';
 import fs from 'fs';
 
 const gracefulShutdown = async (signal: string): Promise<void> => {
   logger.info(`📴 Shutdown gracioso iniciado - Signal: ${signal} - Uptime: ${process.uptime().toFixed(2)}s`);
+
+  // Stop tunnel service
+  await tunnelService.stopTunnel();
 
   // Stop cleanup service
   cleanupService.stopCleanupScheduler();
@@ -27,7 +31,7 @@ const gracefulShutdown = async (signal: string): Promise<void> => {
   });
 };
 
-const server = app.listen(config.port, '0.0.0.0', () => {
+const server = app.listen(config.port, '0.0.0.0', async () => {
   logger.info(`🚀 API Transcrição iniciada - Port:${config.port} Env:${config.nodeEnv} PID:${process.pid}`);
 
   logger.info(`⚙️ Audio: ${config.audio.maxFileSizeMB}MB max, ${config.audio.speedFactor}x speed - apenas aceleração`);
@@ -36,11 +40,15 @@ const server = app.listen(config.port, '0.0.0.0', () => {
 
   logger.info(`⚙️ Rate Limit: ${config.rateLimit.maxRequests} req/${config.rateLimit.windowMs / 60000}min`);
 
-  logger.info(`🌍 Servidor em http://0.0.0.0:${config.port} - Endpoints: POST /gerarPrompts, POST /gerarImagens, POST /transcribe, POST /video/caption, POST /video/img2vid, GET /health, GET /status/:jobId`);
+  logger.info(`🌍 Servidor LOCAL em http://0.0.0.0:${config.port}`);
+  logger.info(`📡 Endpoints: POST /gerarPrompts, POST /gerarImagens, POST /transcribe, POST /video/caption, POST /video/img2vid, GET /health, GET /status/:jobId`);
 
   // Log cleanup service status
   const cleanupStatus = cleanupService.getCleanupStatus();
   logger.info(`🧹 Cleanup Service: ${cleanupStatus.isRunning ? 'Ativo' : 'Inativo'} - Max Age: ${cleanupStatus.maxAgeHours}h - Interval: ${cleanupStatus.intervalHours}h`);
+
+  // Start localtunnel to expose API publicly
+  await tunnelService.startTunnel();
 });
 
 process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
