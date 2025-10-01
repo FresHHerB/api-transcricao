@@ -130,20 +130,27 @@ export class FFmpegService {
     const filePath = join(this.tempDir, filename);
 
     try {
-      // Encode URL properly for axios
-      const encodedUrl = this.encodeUrlForAxios(url);
+      // Check if we need to force HTTP for internal MinIO
+      let finalUrl = url;
+      try {
+        const urlObj = new URL(url);
+        if (urlObj.hostname === 'minio' && urlObj.port === '9000') {
+          urlObj.protocol = 'http:';
+          finalUrl = urlObj.toString();
+        }
+      } catch (e) {
+        // Invalid URL, use as-is
+      }
 
       logger.info(`📥 Attempting to download ${type} file`, {
         requestId,
-        originalUrl: url,
-        encodedUrl,
         type,
         phase: `${type.toUpperCase()}_DOWNLOAD_ATTEMPT`
       });
 
       const response = await axios({
         method: 'GET',
-        url: encodedUrl,
+        url: finalUrl,
         responseType: 'stream',
         timeout: 300000, // 5 minutes timeout
         headers: {
@@ -459,45 +466,6 @@ export class FFmpegService {
     }
   }
 
-  private encodeUrlForAxios(url: string): string {
-    try {
-      // Parse the URL - this automatically decodes the URL first
-      const urlObj = new URL(url);
-
-      // Force HTTP for internal MinIO URLs (port 9000)
-      if (urlObj.hostname === 'minio' && urlObj.port === '9000') {
-        urlObj.protocol = 'http:';
-      }
-
-      // Split path into segments and encode each one separately
-      // The URL constructor already decoded the path, so we can safely encode it
-      const pathSegments = urlObj.pathname.split('/').map(segment => {
-        if (!segment) return segment;
-        // Always encode since URL constructor already decoded it
-        return encodeURIComponent(segment);
-      });
-
-      // Reconstruct the URL with properly encoded path
-      urlObj.pathname = pathSegments.join('/');
-
-      const finalUrl = urlObj.toString();
-
-      logger.debug('🔍 URL ENCODING', {
-        originalUrl: url,
-        finalUrl,
-        protocol: urlObj.protocol,
-        hostname: urlObj.hostname
-      });
-
-      return finalUrl;
-    } catch (error) {
-      logger.warn('Failed to parse URL, using as-is', {
-        url,
-        error: error instanceof Error ? error.message : 'Unknown error'
-      });
-      return url;
-    }
-  }
 
   async imageToVideoWithZoom(
     imageUrl: string,
