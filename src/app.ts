@@ -5,7 +5,6 @@ import compression from 'compression';
 import rateLimit from 'express-rate-limit';
 import { config } from './config/env';
 import { logger } from './utils/logger';
-import { tunnelService } from './services/tunnelService';
 import transcriptionRoutes from './routes/transcription';
 import imageGenerationRoutes from './routes/imageGeneration';
 import videoRoutes from './routes/video';
@@ -115,15 +114,11 @@ app.use('/', videoRoutes);
 app.use('/', enderecoRoutes);
 
 app.get('/', (req, res) => {
-  const tunnelStatus = tunnelService.getTunnelStatus();
-
   res.json({
     service: 'API Transcricao',
     version: '1.0.0',
     status: 'operational',
     timestamp: new Date().toISOString(),
-    publicUrl: tunnelStatus.isActive ? tunnelStatus.url : null,
-    tunnelStatus: tunnelStatus.isActive ? 'active' : 'inactive',
     endpoints: {
       transcribe: 'POST /transcribe',
       gerarPrompts: 'POST /gerarPrompts',
@@ -133,7 +128,6 @@ app.get('/', (req, res) => {
       endereco: 'POST /endereco, GET /endereco',
       health: 'GET /health',
       videoHealth: 'GET /video/health',
-      tunnelStatus: 'GET /tunnel/status',
       status: 'GET /status/:jobId',
       files: 'GET /output/:jobId/:filename'
     },
@@ -222,22 +216,6 @@ app.get('/', (req, res) => {
         }
       }
     }
-  });
-});
-
-// Tunnel status endpoint
-app.get('/tunnel/status', (req, res) => {
-  const tunnelStatus = tunnelService.getTunnelStatus();
-
-  res.json({
-    tunnelActive: tunnelStatus.isActive,
-    publicUrl: tunnelStatus.url,
-    localUrl: `http://localhost:${config.port}`,
-    environment: config.nodeEnv,
-    message: tunnelStatus.isActive
-      ? 'Tunnel is active and API is publicly accessible'
-      : 'Tunnel is not active (only available in development mode)',
-    timestamp: new Date().toISOString()
   });
 });
 

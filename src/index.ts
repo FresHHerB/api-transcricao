@@ -2,14 +2,10 @@ import app from './app';
 import { config } from './config/env';
 import { logger } from './utils/logger';
 import { cleanupService } from './services/cleanupService';
-import { tunnelService } from './services/tunnelService';
 import fs from 'fs';
 
 const gracefulShutdown = async (signal: string): Promise<void> => {
   logger.info(`📴 Shutdown gracioso iniciado - Signal: ${signal} - Uptime: ${process.uptime().toFixed(2)}s`);
-
-  // Stop tunnel service
-  await tunnelService.stopTunnel();
 
   // Stop cleanup service
   cleanupService.stopCleanupScheduler();
@@ -46,9 +42,6 @@ const server = app.listen(config.port, '0.0.0.0', async () => {
   // Log cleanup service status
   const cleanupStatus = cleanupService.getCleanupStatus();
   logger.info(`🧹 Cleanup Service: ${cleanupStatus.isRunning ? 'Ativo' : 'Inativo'} - Max Age: ${cleanupStatus.maxAgeHours}h - Interval: ${cleanupStatus.intervalHours}h`);
-
-  // Start localtunnel to expose API publicly
-  await tunnelService.startTunnel();
 });
 
 process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
