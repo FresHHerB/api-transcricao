@@ -5,9 +5,11 @@ import compression from 'compression';
 import rateLimit from 'express-rate-limit';
 import { config } from './config/env';
 import { logger } from './utils/logger';
+import { tunnelService } from './services/tunnelService';
 import transcriptionRoutes from './routes/transcription';
 import imageGenerationRoutes from './routes/imageGeneration';
 import videoRoutes from './routes/video';
+import enderecoRoutes from './routes/endereco';
 import fs from 'fs';
 import path from 'path';
 
@@ -28,7 +30,7 @@ const corsOrigins = allowedOrigins === '*' ? true : allowedOrigins.split(',').ma
 app.use(cors({
   origin: corsOrigins,
   methods: ['GET', 'POST', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'X-API-Key'],
   credentials: true
 }));
 
@@ -49,7 +51,7 @@ app.use(cors({
 
 // app.use(limiter);
 
-app.use(express.json({ limit: '100mb' }));
+app.use(express.json({ limit: '100mb', type: 'application/json' }));
 app.use(express.urlencoded({ extended: true, limit: '100mb' }));
 
 app.use((req, res, next) => {
@@ -110,21 +112,28 @@ app.use('/output', express.static(config.directories.output, {
 app.use('/', transcriptionRoutes);
 app.use('/', imageGenerationRoutes);
 app.use('/', videoRoutes);
+app.use('/', enderecoRoutes);
 
 app.get('/', (req, res) => {
+  const tunnelStatus = tunnelService.getTunnelStatus();
+
   res.json({
     service: 'API Transcricao',
     version: '1.0.0',
     status: 'operational',
     timestamp: new Date().toISOString(),
+    publicUrl: tunnelStatus.isActive ? tunnelStatus.url : null,
+    tunnelStatus: tunnelStatus.isActive ? 'active' : 'inactive',
     endpoints: {
       transcribe: 'POST /transcribe',
       gerarPrompts: 'POST /gerarPrompts',
       gerarImagens: 'POST /gerarImagens',
       videoCaption: 'POST /video/caption',
       videoImg2Vid: 'POST /video/img2vid',
+      endereco: 'POST /endereco, GET /endereco',
       health: 'GET /health',
       videoHealth: 'GET /video/health',
+      tunnelStatus: 'GET /tunnel/status',
       status: 'GET /status/:jobId',
       files: 'GET /output/:jobId/:filename'
     },
@@ -195,8 +204,40 @@ app.get('/', (req, res) => {
           frame_rate: 'Video frame rate (1-60, default: 24)',
           duration: 'Video duration in seconds (0.1-60)'
         }
+      },
+      endereco: {
+        methods: ['POST', 'GET'],
+        path: '/endereco',
+        headers: {
+          'X-API-Key': 'YOUR_API_KEY',
+          'Content-Type': 'application/json'
+        },
+        POST: {
+          body: {
+            endereco: 'IP address (IPv4 or IPv6 format)'
+          }
+        },
+        GET: {
+          description: 'Retrieves the stored IP address'
+        }
       }
     }
+  });
+});
+
+// Tunnel status endpoint
+app.get('/tunnel/status', (req, res) => {
+  const tunnelStatus = tunnelService.getTunnelStatus();
+
+  res.json({
+    tunnelActive: tunnelStatus.isActive,
+    publicUrl: tunnelStatus.url,
+    localUrl: `http://localhost:${config.port}`,
+    environment: config.nodeEnv,
+    message: tunnelStatus.isActive
+      ? 'Tunnel is active and API is publicly accessible'
+      : 'Tunnel is not active (only available in development mode)',
+    timestamp: new Date().toISOString()
   });
 });
 
@@ -210,6 +251,8 @@ app.use('*', (req, res) => {
       'POST /gerarImagens',
       'POST /video/caption',
       'POST /video/img2vid',
+      'POST /endereco',
+      'GET /endereco',
       'GET /health',
       'GET /video/health',
       'GET /status/:jobId',
