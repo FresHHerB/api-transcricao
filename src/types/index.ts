@@ -310,3 +310,31 @@ export interface Img2VidResponse {
     ffmpegCommand?: string;
   };
 }
+
+// Video Add Audio Types
+export interface AddAudioRequest {
+  url_video: string;
+  url_audio: string;
+}
+
+export interface AddAudioResponse {
+  code: number;
+  message: string;
+  video_url: string;
+  execution: {
+    startTime: string;
+    endTime: string;
+    durationMs: number;
+    durationSeconds: number;
+  };
+  stats: {
+    inputVideoSize?: number;
+    inputAudioSize?: number;
+    outputVideoSize?: number;
+    videoDuration?: number;
+    audioDuration?: number;
+    timeAdjustment?: string;
+    speedFactor?: number;
+    ffmpegCommand?: string;
+  };
+}

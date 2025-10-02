@@ -962,4 +962,332 @@ export class FFmpegService {
       });
     });
   }
+
+  /**
+   * Get audio file metadata (duration)
+   */
+  private async getAudioMetadata(
+    audioPath: string,
+    requestId: string
+  ): Promise<{ duration: number | null }> {
+    return new Promise((resolve) => {
+      const ffprobe = spawn('ffprobe', [
+        '-v', 'quiet',
+        '-print_format', 'json',
+        '-show_format',
+        '-show_streams',
+        audioPath
+      ]);
+
+      let output = '';
+
+      ffprobe.stdout.on('data', (data) => {
+        output += data.toString();
+      });
+
+      ffprobe.on('close', (code) => {
+        if (code === 0) {
+          try {
+            const metadata = JSON.parse(output);
+            const duration = parseFloat(metadata.format?.duration || '0') || null;
+
+            logger.info('📊 Audio metadata extracted', {
+              requestId,
+              duration: duration ? `${duration}s` : 'unknown',
+              durationSeconds: duration
+            });
+
+            resolve({ duration });
+          } catch (error) {
+            logger.warn('⚠️ Failed to parse audio metadata', {
+              requestId,
+              error: error instanceof Error ? error.message : 'Unknown error'
+            });
+            resolve({ duration: null });
+          }
+        } else {
+          logger.warn('⚠️ FFprobe failed for audio, proceeding without metadata', {
+            requestId,
+            exitCode: code
+          });
+          resolve({ duration: null });
+        }
+      });
+    });
+  }
+
+  /**
+   * Process video with audio sync (CPU only - no GPU)
+   */
+  private async processVideoWithAudio(
+    videoPath: string,
+    audioPath: string,
+    videoDuration: number,
+    audioDuration: number,
+    requestId: string
+  ): Promise<string> {
+    const outputFilename = `${requestId}_audio_${Date.now()}.mp4`;
+    const outputPath = join(this.outputDir, outputFilename);
+
+    // Calculate speed adjustment factor (setpts filter uses inverse of speed)
+    const speedFactor = videoDuration / audioDuration;
+    const ptsMultiplier = 1 / speedFactor;
+
+    logger.info('💻 Using CPU encoding with audio sync', {
+      requestId,
+      speedFactor: speedFactor.toFixed(3),
+      targetDuration: `${audioDuration}s`
+    });
+
+    // CPU pipeline with video speed adjustment
+    const ffmpegArgs = [
+      '-y',
+      '-i', videoPath,
+      '-i', audioPath,
+      '-filter:v', `setpts=${ptsMultiplier.toFixed(6)}*PTS`,
+      '-map', '0:v',
+      '-map', '1:a',
+      '-c:v', 'libx264',
+      '-preset', 'ultrafast',  // Using ultrafast for performance
+      '-crf', '23',
+      '-c:a', 'aac',
+      '-b:a', '192k',
+      '-shortest',
+      '-movflags', '+faststart',
+      outputPath
+    ];
+
+    // Set environment to use tmpfs for temp files
+    const ffmpegEnv = {
+      ...process.env,
+      TMPDIR: '/tmp',
+      TEMP: '/tmp',
+      TMP: '/tmp'
+    };
+
+    const ffmpegCommand = `ffmpeg ${ffmpegArgs.join(' ')}`;
+
+    logger.info('🎬 Starting FFmpeg audio sync processing', {
+      requestId,
+      command: ffmpegCommand,
+      inputVideo: videoPath,
+      inputAudio: audioPath,
+      outputPath,
+      speedAdjustment: {
+        originalVideoDuration: `${videoDuration}s`,
+        audioDuration: `${audioDuration}s`,
+        speedFactor: speedFactor.toFixed(3),
+        ptsMultiplier: ptsMultiplier.toFixed(6)
+      }
+    });
+
+    return new Promise((resolve, reject) => {
+      const ffmpeg = spawn('ffmpeg', ffmpegArgs, { env: ffmpegEnv });
+
+      let stderr = '';
+      let stdout = '';
+
+      ffmpeg.stdout.on('data', (data) => {
+        stdout += data.toString();
+      });
+
+      ffmpeg.stderr.on('data', (data) => {
+        stderr += data.toString();
+
+        const output = data.toString();
+
+        if (output.includes('frame=') && output.includes('time=')) {
+          const timeMatch = output.match(/time=(\d{2}:\d{2}:\d{2}\.\d{2})/);
+          const speedMatch = output.match(/speed=\s*([\d.]+)x/);
+
+          if (timeMatch) {
+            const timeParts = timeMatch[1].split(':');
+            const currentSeconds = parseInt(timeParts[0]) * 3600 + parseInt(timeParts[1]) * 60 + parseFloat(timeParts[2]);
+
+            const progressPercentage = Math.min(Math.round((currentSeconds / audioDuration) * 100), 100);
+
+            if (progressPercentage % 10 === 0) {
+              logger.info(`🎵 Audio sync progress: ${progressPercentage}%`, {
+                requestId,
+                currentTime: timeMatch[1],
+                speed: speedMatch ? `${speedMatch[1]}x` : null,
+                phase: 'AUDIO_SYNC_PROGRESS'
+              });
+            }
+          }
+        }
+      });
+
+      ffmpeg.on('close', (code) => {
+        if (code === 0) {
+          logger.info('✅ FFmpeg audio sync processing completed', {
+            requestId,
+            outputPath,
+            exitCode: code
+          });
+          resolve(outputPath);
+        } else {
+          logger.error('❌ FFmpeg audio sync processing failed', {
+            requestId,
+            exitCode: code,
+            stderr: stderr.slice(-1000),
+            command: ffmpegCommand
+          });
+          reject(new Error(`FFmpeg failed with exit code ${code}: ${stderr.slice(-500)}`));
+        }
+      });
+
+      ffmpeg.on('error', (error) => {
+        logger.error('💥 FFmpeg spawn error (audio sync)', {
+          requestId,
+          error: error.message
+        });
+        reject(new Error(`FFmpeg spawn error: ${error.message}`));
+      });
+    });
+  }
+
+  /**
+   * Add audio to video with duration synchronization
+   */
+  async addAudioToVideo(
+    videoUrl: string,
+    audioUrl: string,
+    requestId: string
+  ): Promise<{ outputPath: string; stats: any }> {
+    const startTime = Date.now();
+
+    try {
+      logger.info('🎵 Starting add audio to video process', {
+        requestId,
+        videoUrl,
+        audioUrl,
+        phase: 'ADD_AUDIO_START'
+      });
+
+      // Step 1: Download video file
+      logger.info('📥 Downloading video file', {
+        requestId,
+        videoUrl,
+        phase: 'VIDEO_DOWNLOAD_START'
+      });
+
+      const videoPath = await this.downloadFile(
+        videoUrl,
+        'video',
+        this.getFileExtension(videoUrl) || '.mp4',
+        requestId
+      );
+
+      const videoStats = await fs.stat(videoPath);
+
+      logger.info('✅ Video downloaded successfully', {
+        requestId,
+        videoPath,
+        videoSizeMB: Math.round(videoStats.size / 1024 / 1024 * 100) / 100,
+        phase: 'VIDEO_DOWNLOAD_SUCCESS'
+      });
+
+      // Step 2: Download audio file
+      logger.info('📥 Downloading audio file', {
+        requestId,
+        audioUrl,
+        phase: 'AUDIO_DOWNLOAD_START'
+      });
+
+      const audioPath = await this.downloadFile(
+        audioUrl,
+        'audio',
+        this.getFileExtension(audioUrl) || '.mp3',
+        requestId
+      );
+
+      const audioStats = await fs.stat(audioPath);
+
+      logger.info('✅ Audio downloaded successfully', {
+        requestId,
+        audioPath,
+        audioSizeMB: Math.round(audioStats.size / 1024 / 1024 * 100) / 100,
+        phase: 'AUDIO_DOWNLOAD_SUCCESS'
+      });
+
+      // Step 3: Get durations of both video and audio
+      const videoMetadata = await this.getVideoMetadata(videoPath, requestId);
+      const audioMetadata = await this.getAudioMetadata(audioPath, requestId);
+
+      if (!videoMetadata.duration || !audioMetadata.duration) {
+        throw new Error('Could not determine video or audio duration');
+      }
+
+      const videoDuration = videoMetadata.duration;
+      const audioDuration = audioMetadata.duration;
+
+      logger.info('📊 Duration analysis', {
+        requestId,
+        videoDuration: `${videoDuration.toFixed(2)}s`,
+        audioDuration: `${audioDuration.toFixed(2)}s`,
+        difference: `${Math.abs(videoDuration - audioDuration).toFixed(2)}s`
+      });
+
+      // Step 4: Process video with audio synchronization
+      logger.info('🎞️ Processing video with audio using FFmpeg', {
+        requestId,
+        phase: 'FFMPEG_PROCESSING_START'
+      });
+
+      const outputPath = await this.processVideoWithAudio(
+        videoPath,
+        audioPath,
+        videoDuration,
+        audioDuration,
+        requestId
+      );
+
+      const outputStats = await fs.stat(outputPath);
+      const processingTime = Date.now() - startTime;
+
+      // Calculate speed adjustment
+      const speedFactor = videoDuration / audioDuration;
+      const timeAdjustment = videoDuration > audioDuration ?
+        `Video slowed down (${speedFactor.toFixed(3)}x)` :
+        `Video sped up (${speedFactor.toFixed(3)}x)`;
+
+      const stats = {
+        inputVideoSize: videoStats.size,
+        inputAudioSize: audioStats.size,
+        outputVideoSize: outputStats.size,
+        videoDuration,
+        audioDuration,
+        timeAdjustment,
+        speedFactor,
+        processingTimeMs: processingTime,
+        processingTimeSeconds: Math.round(processingTime / 1000 * 100) / 100
+      };
+
+      logger.info('🎉 Add audio to video process completed successfully', {
+        requestId,
+        outputPath,
+        stats,
+        phase: 'ADD_AUDIO_SUCCESS'
+      });
+
+      // Cleanup temp files
+      await this.cleanupTempFiles([videoPath, audioPath], requestId);
+
+      return { outputPath, stats };
+
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      const processingTime = Date.now() - startTime;
+
+      logger.error('💥 Add audio to video process failed', {
+        requestId,
+        error: errorMessage,
+        processingTimeMs: processingTime,
+        phase: 'ADD_AUDIO_FAILED'
+      });
+
+      throw error;
+    }
+  }
 }
