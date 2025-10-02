@@ -46,6 +46,8 @@ const consoleFormat = winston.format.combine(
       messageStr.includes('processamento') ||
       messageStr.includes('CPU Monitor') ||
       messageStr.includes('CPU State') ||
+      messageStr.includes('Starting FFmpeg') ||
+      messageStr.includes('Starting image') ||
       level.includes('error') ||
       level.includes('warn')
     );
