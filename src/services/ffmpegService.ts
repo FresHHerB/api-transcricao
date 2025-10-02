@@ -720,10 +720,11 @@ export class FFmpegService {
     const totalFrames = Math.round(frameRate * duration);
 
     // Determine optimal upscale factor based on image resolution
-    // Upscale 6x for smooth zoom (required to prevent jitter - 4x showed visible artifacts)
-    const upscaleFactor = 6;
-    let upscaleWidth = 6720;  // Default for standard images
-    let upscaleHeight = 3840;
+    // Upscale 4x for smooth zoom (balanced performance vs quality)
+    // 6x caused severe I/O bottleneck on slow disks (2% CPU usage due to I/O wait)
+    const upscaleFactor = 4;
+    let upscaleWidth = 4480;  // Default for standard images (1120*4)
+    let upscaleHeight = 2560; // Default for standard images (640*4)
 
     if (imageMetadata) {
       upscaleWidth = imageMetadata.width * upscaleFactor;
@@ -753,15 +754,24 @@ export class FFmpegService {
       '-i', imagePath, // Input image
       '-vf', videoFilter, // Apply the complex video filter
       '-c:v', 'libx264', // Video codec
-      '-preset', 'faster', // Optimized: 2-3x faster than medium, 95% quality
-      '-crf', '22', // Optimized: Good quality balance
+      '-preset', 'ultrafast', // Fastest preset (was 'faster') - prioritize speed
+      '-crf', '23', // Slightly lower quality for speed (was 22)
       '-threads', '2', // Use both vCPU cores
       '-t', duration.toString(), // Video duration
+      '-max_muxing_queue_size', '1024', // Prevent buffer issues
       '-y', // Overwrite output file
       outputPath
     ];
 
     const ffmpegCommand = `ffmpeg ${ffmpegArgs.join(' ')}`;
+
+    // Set environment to use tmpfs for temp files (faster I/O)
+    const ffmpegEnv = {
+      ...process.env,
+      TMPDIR: '/tmp',  // Use tmpfs mounted at /tmp
+      TEMP: '/tmp',
+      TMP: '/tmp'
+    };
 
     logger.info('🎬 Starting FFmpeg image-to-video processing', {
       requestId,
@@ -783,7 +793,7 @@ export class FFmpegService {
     const cpuMonitor = this.startCPUMonitoring(requestId, 'IMG2VID_FFMPEG');
 
     return new Promise((resolve, reject) => {
-      const ffmpeg = spawn('ffmpeg', ffmpegArgs);
+      const ffmpeg = spawn('ffmpeg', ffmpegArgs, { env: ffmpegEnv });
 
       let stderr = '';
       let stdout = '';

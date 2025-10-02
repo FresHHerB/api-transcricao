@@ -15,6 +15,10 @@ services:
       - ./temp:/app/temp
       - ./output:/app/output
       - ./logs:/app/logs
+      - type: tmpfs
+        target: /tmp
+        tmpfs:
+          size: 1G     # 1GB RAM disk for FFmpeg temp files
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:3000/health"]

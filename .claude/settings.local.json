@@ -25,7 +25,14 @@
       "Bash(cmd /c:*)",
       "Bash(tasklist)",
       "Bash(node -e \"console.log(''Port from config:'', require(''./dist/config/env'').config.port)\")",
-      "Bash(node:*)"
+      "Bash(node:*)",
+      "Bash(npm install:*)",
+      "Read(//d/code/github/api-autodark/**)",
+      "WebFetch(domain:www.bannerbear.com)",
+      "WebFetch(domain:streaminglearningcenter.com)",
+      "WebFetch(domain:creatomate.com)",
+      "WebFetch(domain:www.vpsbenchmarks.com)",
+      "WebFetch(domain:www.hostinger.com)"
     ],
     "deny": [],
     "ask": []

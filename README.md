@@ -385,6 +385,73 @@ curl -X POST http://localhost:3000/video/img2vid \
 
 ---
 
+### 📍 IP Address Storage
+
+#### Store IP Address
+
+**POST** `/endereco`
+
+Store an IP address in memory.
+
+**Headers:**
+```
+X-API-Key: YOUR_API_KEY
+Content-Type: application/json
+```
+
+**Payload:**
+```json
+{
+  "endereco": "192.168.1.100"
+}
+```
+
+**cURL Example:**
+```bash
+curl -X POST http://localhost:3000/endereco \
+  -H "X-API-Key: YOUR_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "endereco": "192.168.1.100"
+  }'
+```
+
+**Response:**
+```json
+{
+  "message": "IP address stored successfully",
+  "endereco": "192.168.1.100",
+  "requestId": "endereco_post_1234567890_abc123"
+}
+```
+
+#### Retrieve IP Address
+
+**GET** `/endereco`
+
+Retrieve the stored IP address.
+
+**Headers:**
+```
+X-API-Key: YOUR_API_KEY
+```
+
+**cURL Example:**
+```bash
+curl -X GET http://localhost:3000/endereco \
+  -H "X-API-Key: YOUR_API_KEY"
+```
+
+**Response:**
+```json
+{
+  "endereco": "192.168.1.100",
+  "requestId": "endereco_get_1234567890_def456"
+}
+```
+
+---
+
 ### 🔧 System Endpoints
 
 #### Health Check
@@ -598,6 +665,8 @@ docker run -d \
 | `/gerarImagens` | POST | Generate images from prompts | ✅ |
 | `/video/caption` | POST | Add SRT captions to video | ✅ |
 | `/video/img2vid` | POST | Convert image to video | ✅ |
+| `/endereco` | POST | Store IP address | ✅ |
+| `/endereco` | GET | Retrieve stored IP address | ✅ |
 | `/health` | GET | Server health status | ❌ |
 | `/video/health` | GET | Video service health | ❌ |
 | `/status/:jobId` | GET | Check job status | ✅ |
