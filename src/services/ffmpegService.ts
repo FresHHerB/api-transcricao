@@ -720,11 +720,11 @@ export class FFmpegService {
     const totalFrames = Math.round(frameRate * duration);
 
     // Determine optimal upscale factor based on image resolution
-    // Upscale 4x for smooth zoom (balanced performance vs quality)
-    // 6x caused severe I/O bottleneck on slow disks (2% CPU usage due to I/O wait)
-    const upscaleFactor = 4;
-    let upscaleWidth = 4480;  // Default for standard images (1120*4)
-    let upscaleHeight = 2560; // Default for standard images (640*4)
+    // Upscale 6x for Ken Burns effect (industry standard per research)
+    // I/O bottleneck now solved with tmpfs, ultrafast preset, and optimized env
+    const upscaleFactor = 6;
+    let upscaleWidth = 6720;  // Default for standard images
+    let upscaleHeight = 3840;
 
     if (imageMetadata) {
       upscaleWidth = imageMetadata.width * upscaleFactor;
