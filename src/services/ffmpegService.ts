@@ -4,6 +4,7 @@ import { join, basename, extname } from 'path';
 import axios from 'axios';
 import { config } from '../config/env';
 import { logger } from '../utils/logger';
+import * as os from 'os';
 
 export class FFmpegService {
   private readonly tempDir: string;
@@ -12,6 +13,77 @@ export class FFmpegService {
   constructor() {
     this.tempDir = config.directories.temp;
     this.outputDir = config.directories.output;
+  }
+
+  /**
+   * Monitor CPU usage during processing
+   */
+  private getCPUUsage(): { percentUsed: number; totalCores: number; loadAverage: number[]; memoryUsage: { used: number; total: number; percentUsed: number } } {
+    const cpus = os.cpus();
+    const totalCores = cpus.length;
+
+    // Calculate CPU usage from each core
+    let totalIdle = 0;
+    let totalTick = 0;
+
+    cpus.forEach(cpu => {
+      for (const type in cpu.times) {
+        totalTick += cpu.times[type as keyof typeof cpu.times];
+      }
+      totalIdle += cpu.times.idle;
+    });
+
+    const idle = totalIdle / totalCores;
+    const total = totalTick / totalCores;
+    const percentUsed = 100 - ~~(100 * idle / total);
+
+    // Load average (1, 5, 15 minutes)
+    const loadAverage = os.loadavg();
+
+    // Memory usage
+    const totalMemory = os.totalmem();
+    const freeMemory = os.freemem();
+    const usedMemory = totalMemory - freeMemory;
+    const memoryPercentUsed = (usedMemory / totalMemory) * 100;
+
+    return {
+      percentUsed,
+      totalCores,
+      loadAverage,
+      memoryUsage: {
+        used: Math.round(usedMemory / 1024 / 1024), // MB
+        total: Math.round(totalMemory / 1024 / 1024), // MB
+        percentUsed: Math.round(memoryPercentUsed * 100) / 100
+      }
+    };
+  }
+
+  /**
+   * Start CPU monitoring interval
+   */
+  private startCPUMonitoring(requestId: string, phase: string): NodeJS.Timeout {
+    const interval = setInterval(() => {
+      const cpuStats = this.getCPUUsage();
+
+      logger.info(`📊 CPU Monitor [${phase}]`, {
+        requestId,
+        phase,
+        cpu: {
+          usage: `${cpuStats.percentUsed}%`,
+          cores: cpuStats.totalCores,
+          loadAvg1m: cpuStats.loadAverage[0]?.toFixed(2) ?? 'N/A',
+          loadAvg5m: cpuStats.loadAverage[1]?.toFixed(2) ?? 'N/A',
+          loadAvg15m: cpuStats.loadAverage[2]?.toFixed(2) ?? 'N/A'
+        },
+        memory: {
+          used: `${cpuStats.memoryUsage.used}MB`,
+          total: `${cpuStats.memoryUsage.total}MB`,
+          usage: `${cpuStats.memoryUsage.percentUsed}%`
+        }
+      });
+    }, 2000); // Monitor every 2 seconds
+
+    return interval;
   }
 
   async addCaptionsToVideo(
@@ -477,12 +549,20 @@ export class FFmpegService {
     const startTime = Date.now();
 
     try {
+      // Log initial CPU state
+      const initialCPU = this.getCPUUsage();
       logger.info('🎥 Starting image to video with zoom process', {
         requestId,
         imageUrl,
         frameRate,
         duration,
-        phase: 'IMG2VID_START'
+        phase: 'IMG2VID_START',
+        systemInfo: {
+          cpuCores: initialCPU.totalCores,
+          cpuUsage: `${initialCPU.percentUsed}%`,
+          memoryTotal: `${initialCPU.memoryUsage.total}MB`,
+          memoryUsage: `${initialCPU.memoryUsage.percentUsed}%`
+        }
       });
 
       // Step 1: Download image file
@@ -699,6 +779,9 @@ export class FFmpegService {
       }
     });
 
+    // Start CPU monitoring
+    const cpuMonitor = this.startCPUMonitoring(requestId, 'IMG2VID_FFMPEG');
+
     return new Promise((resolve, reject) => {
       const ffmpeg = spawn('ffmpeg', ffmpegArgs);
 
@@ -782,6 +865,25 @@ export class FFmpegService {
       });
 
       ffmpeg.on('close', (code) => {
+        // Stop CPU monitoring
+        clearInterval(cpuMonitor);
+
+        // Log final CPU state
+        const finalCPU = this.getCPUUsage();
+        logger.info('📊 Final CPU State [IMG2VID_FFMPEG]', {
+          requestId,
+          cpu: {
+            usage: `${finalCPU.percentUsed}%`,
+            cores: finalCPU.totalCores,
+            loadAvg1m: finalCPU.loadAverage[0]?.toFixed(2) ?? 'N/A'
+          },
+          memory: {
+            used: `${finalCPU.memoryUsage.used}MB`,
+            total: `${finalCPU.memoryUsage.total}MB`,
+            usage: `${finalCPU.memoryUsage.percentUsed}%`
+          }
+        });
+
         if (code === 0) {
           logger.info('✅ FFmpeg image-to-video processing completed successfully', {
             requestId,
@@ -807,6 +909,9 @@ export class FFmpegService {
       });
 
       ffmpeg.on('error', (error) => {
+        // Stop CPU monitoring on error
+        clearInterval(cpuMonitor);
+
         logger.error('❌ FFmpeg spawn error for image-to-video', {
           requestId,
           error: error.message,
