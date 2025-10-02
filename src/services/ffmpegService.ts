@@ -720,10 +720,10 @@ export class FFmpegService {
     const totalFrames = Math.round(frameRate * duration);
 
     // Determine optimal upscale factor based on image resolution
-    // Upscale 6x for smooth zoom (as per the guide)
-    const upscaleFactor = 6;
-    let upscaleWidth = 6720;  // Default for standard images
-    let upscaleHeight = 3840;
+    // Upscale 4x for smooth zoom with better performance (reduced from 6x)
+    const upscaleFactor = 4;
+    let upscaleWidth = 4480;  // Default for standard images (1120*4)
+    let upscaleHeight = 2560; // Default for standard images (640*4)
 
     if (imageMetadata) {
       upscaleWidth = imageMetadata.width * upscaleFactor;
