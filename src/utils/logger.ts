@@ -44,6 +44,8 @@ const consoleFormat = winston.format.combine(
       messageStr.includes('FALHOU') ||
       messageStr.includes('chunks') ||
       messageStr.includes('processamento') ||
+      messageStr.includes('CPU Monitor') ||
+      messageStr.includes('CPU State') ||
       level.includes('error') ||
       level.includes('warn')
     );
